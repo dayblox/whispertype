@@ -29,7 +29,17 @@ jobs:
         with:
           python-version: '3.13'
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev
+        name: Install Linux build dependencies from Ubuntu archive
+        run: |
+          # Avoid the runner's Azure mirror, which can intermittently fail DNS.
+          sources="$RUNNER_TEMP/whispertype-apt.list"
+          printf '%s\n' \
+            'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu jammy main' \
+            'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu jammy-updates main' \
+            'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu jammy-security main' > "$sources"
+          options=(-o "Dir::Etc::sourcelist=$sources" -o 'Dir::Etc::sourceparts=-' -o Acquire::Retries=2 -o Acquire::https::Timeout=20)
+          sudo apt-get "${options[@]}" update
+          sudo apt-get "${options[@]}" install -y libasound2-dev libxkbcommon-dev
       - name: Test, build and package native Windows EXE
         if: runner.os == 'Windows'
         shell: pwsh
