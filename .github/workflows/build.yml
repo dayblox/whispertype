@@ -38,8 +38,15 @@ jobs:
             'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu jammy-updates main' \
             'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu jammy-security main' > "$sources"
           options=(-o "Dir::Etc::sourcelist=$sources" -o 'Dir::Etc::sourceparts=-' -o Acquire::Retries=2 -o Acquire::https::Timeout=20)
-          sudo apt-get "${options[@]}" update
-          sudo apt-get "${options[@]}" install -y libasound2-dev libxkbcommon-dev
+          # sudo drops proxy variables; apt also expects their lowercase forms.
+          # Preserve the runner's network route without printing proxy credentials.
+          network=("http_proxy=${http_proxy:-${HTTP_PROXY:-}}" "https_proxy=${https_proxy:-${HTTPS_PROXY:-}}" "no_proxy=${no_proxy:-${NO_PROXY:-}}")
+          for name in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do
+            if [[ -n ${!name:-} ]]; then echo "$name is configured"; fi
+          done
+          curl --fail --silent --show-error --location --max-time 30 --output /dev/null https://archive.ubuntu.com/ubuntu/dists/jammy/InRelease
+          sudo env "${network[@]}" apt-get "${options[@]}" -o APT::Update::Error-Mode=any update
+          sudo env "${network[@]}" apt-get "${options[@]}" install -y libasound2-dev libxkbcommon-dev
       - name: Test, build and package native Windows EXE
         if: runner.os == 'Windows'
         shell: pwsh
