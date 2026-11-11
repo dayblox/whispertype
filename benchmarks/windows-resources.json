@@ -1,0 +1,49 @@
+{
+  "measured_at": "2026-11-11T12:54:42.4172022Z",
+  "os": "Microsoft Windows NT 10.0.26100.0",
+  "architecture": "AMD64",
+  "executable_bytes": 3609088,
+  "executable_sha256": "82a9379bb4c2ef93efa58b270ff03af0e67526e53b1476419cdf2170dbeea8ee",
+  "sample_seconds": 10,
+  "warmup_seconds": 3,
+  "notes": "App only; excludes Windows audio services. Ambient audio, not a controlled silent room. No audio saved or uploaded. CPU percent is of one logical core; working set includes shared pages.",
+  "audio_trace": "Audio capture: 48000 Hz, 2 channel(s), FFT resampling\nAudio capture: 48000 Hz, 2 channel(s), FFT resampling\nAudio capture: 48000 Hz, 2 channel(s), FFT resampling\nAdd your Groq API key first (whispertype set-key)",
+  "samples": [
+    {
+      "state": "idle",
+      "elapsed_seconds": 10.004546699999999,
+      "cpu_percent_one_core": 0,
+      "working_set_bytes": 13750272,
+      "private_bytes": 1789952,
+      "threads": 5,
+      "handles": 172
+    },
+    {
+      "state": "recording",
+      "elapsed_seconds": 10.006010999999999,
+      "cpu_percent_one_core": 0.1561558271053476,
+      "working_set_bytes": 22073344,
+      "private_bytes": 3481600,
+      "threads": 7,
+      "handles": 286
+    },
+    {
+      "state": "listening",
+      "elapsed_seconds": 10.0143303,
+      "cpu_percent_one_core": 0.7801306373562957,
+      "working_set_bytes": 22007808,
+      "private_bytes": 3289088,
+      "threads": 8,
+      "handles": 286
+    },
+    {
+      "state": "idle_after_capture",
+      "elapsed_seconds": 10.0065785,
+      "cpu_percent_one_core": 0,
+      "working_set_bytes": 21868544,
+      "private_bytes": 3063808,
+      "threads": 8,
+      "handles": 263
+    }
+  ]
+}

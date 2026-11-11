@@ -1,11 +1,29 @@
 # Validation — November 11, 2026
 
 The optimized implementation passes compilation, local unit/integration
-tests, and Linux microphone/desktop smoke checks. It has **not** been run on
-a real Windows desktop and no live Groq transcription has been performed:
-an API key was not supplied during development.
+tests, Linux microphone/desktop checks, and native Windows microphone/desktop
+smoke tests. No live Groq transcription has been performed: an API key was
+not supplied during development.
 
 ## Completed checks
+
+- Native Windows x64 MSVC: **14 functional tests pass**, with three explicit
+  opt-in tests (offline benchmark, interactive desktop, physical microphone).
+  The two packaging tests pass for Windows and Linux archives, repeat runs,
+  checksums, and missing-input errors.
+- Opt-in Windows microphone check: default device opened at **48 kHz stereo**,
+  passed through FFT resampling, delivered **100 PCM frames in three seconds**,
+  closed cleanly, and reported no queue overflow. No audio saved/uploaded.
+- Opt-in Windows desktop check: real Unicode `SendInput` into an owned native
+  edit field (accented French, Japanese, emoji at a batch boundary); native
+  tray create/update/delete; indicator visibility for recording/transcribing/
+  enrollment and removal at idle; focus retained during indicator updates;
+  hook press/repeat/release handling using unflagged hook structures; IPC
+  delivery and clean window shutdown. This is not a physical-keyboard trial.
+- Windows release EXE: GUI subsystem, x64, **3,609,088 bytes**, system-only DLL
+  imports, static MSVC runtime. Redirected `--help`, config path, invalid
+  command stderr/exit status, and offline worker JSON output pass.
+- Windows `cargo fmt --check` and `cargo clippy --locked --all-targets -- -D warnings` pass.
 
 - `cargo test --locked`: **12 tests pass**; the offline benchmark is excluded
   from ordinary test runs and passes separately in release mode. Tests cover
@@ -81,14 +99,45 @@ above the gate still runs MFCC/reference recognition.
 
 See `OPTIMIZATION.md` for design/reproduction commands and
 `benchmarks/results.json` for raw measurements. The chart is available as
-`benchmarks/results.html`. Windows performance and live Groq upload latency/
-memory have not been measured.
+`benchmarks/results.html`. Native Windows samples are described below. Live
+Groq upload latency/memory has not been measured.
+
+## Native Windows resource sample
+
+Windows build 26100, x64 MSVC release, default tray and indicator enabled.
+Each state has three seconds of warmup and a ten-second sample; no compiler
+or benchmark ran during sampling. Default capture was 48 kHz stereo with
+FFT resampling. CPU is percent of one logical core and excludes Windows audio
+services. Private bytes are committed private memory; working set includes
+shared pages and is not comparable to Linux PSS.
+
+| State | CPU, one core | Private bytes | Working set |
+|---|---:|---:|---:|
+| Initial idle | 0.00% | 1.71 MiB | 13.11 MiB |
+| Recording | 0.16% | 3.32 MiB | 21.05 MiB |
+| Wake listening | 0.78% | 3.14 MiB | 20.99 MiB |
+| Idle after capture | 0.00% | 2.92 MiB | 20.86 MiB |
+
+Windows/driver pages and sleeping threads can remain resident after capture;
+there is no artificial working-set trimming. These short samples establish
+behavior on this device, not a whole-app before/after speedup or battery claim.
+The ambient wake sample included a detection attempt blocked before recording
+by the missing API key; it is not a quiet-room or false-positive-rate test.
+Wake accuracy still needs personal enrollment/testing. No audio was uploaded.
+
+Reproduce with `scripts/measure-windows.ps1`; raw samples and EXE SHA-256 are in
+`benchmarks/windows-resources.json`. The Windows offline reference benchmark
+also passes; raw results and methodology are in `benchmarks/windows-offline.json`.
+It confirms zero allocations per 500 captured frames and 3.84 MB of audio
+buffers for a 120-second recording. The reference implementation retains
+11.52 MB of audio buffers; those values exclude OS, driver, and TLS memory.
 
 ## Before relying on the Windows release
 
 Run it on Windows 10/11 with your actual microphone and API key. Check tap vs
 hold, shortcut capture, tray actions, focus-change protection, Unicode typing
 in the applications you use, sign-in startup, and your voice's wake-phrase
-accuracy. The provided GitHub Actions workflow adds native Windows build/unit
-tests when this repository is pushed; those tests do not replace desktop and
-microphone testing. The built executable is unsigned.
+accuracy. The GitHub Actions workflow runs native Windows build/unit/packaging
+tests on every push to `main`, pull request, and manual dispatch. It uploads a
+portable EXE artifact and an installable ZIP with checksums after checks pass.
+Hardware tests remain opt-in locally. The built executable is unsigned.

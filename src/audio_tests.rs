@@ -6,6 +6,29 @@ use std::{
     time::Instant,
 };
 
+#[test]
+#[ignore = "Requires a real microphone; captures three seconds locally without storing or uploading audio"]
+fn microphone_smoke() {
+    let (sender, receiver) = mpsc::sync_channel(64);
+    let capture = Capture::start(&Config::default(), sender).unwrap();
+    let until = Instant::now() + std::time::Duration::from_secs(3);
+    let mut frames = 0;
+    while Instant::now() < until {
+        match receiver.recv_timeout(std::time::Duration::from_millis(500)) {
+            Ok(Event::Audio(_)) => frames += 1,
+            Ok(Event::Fault(error)) => panic!("{error}"),
+            _ => (),
+        }
+    }
+    assert!(
+        frames >= 30,
+        "Expected at least one second of audio, got {frames} frames"
+    );
+    assert!(!capture.overflow.load(Ordering::Relaxed));
+    drop(capture);
+    println!("Microphone opened, delivered {frames} PCM frames, and closed without overflow; no audio saved or uploaded.");
+}
+
 struct Allocator;
 static TRACK: AtomicBool = AtomicBool::new(false);
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);

@@ -1,0 +1,32 @@
+{
+  "platform": "x86_64-pc-windows-msvc",
+  "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "profile": "release, opt-level=s, thin LTO, codegen-units=1, static CRT",
+  "method": "Median of five runs; original reference algorithms and optimized algorithms in the same test binary. Not a before/after comparison of this Windows follow-up commit.",
+  "command": "cargo test --release --locked optimization_benchmark -- --ignored --nocapture --test-threads=1",
+  "audio_buffers_120s": {
+    "after_peak_bytes": 3840000,
+    "before_peak_bytes": 11520088,
+    "note": "allocator-tracked audio buffers, excludes OS/driver/TLS memory"
+  },
+  "native_16khz": {
+    "after_allocations_per_500_frames": 0,
+    "after_ms": 1.5344,
+    "before_allocations_per_500_frames": 500,
+    "before_ms": 31.2825,
+    "simulated_seconds": 150
+  },
+  "quiet_wake": {
+    "after_ms": 0.4202,
+    "before_ms": 45.5347,
+    "note": "digital silence; speech/noisy rooms still run the reference detector",
+    "simulated_seconds": 30
+  },
+  "resampled_48khz": {
+    "after_allocations_per_500_frames": 0,
+    "after_ms": 54.2001,
+    "before_allocations_per_500_frames": 500,
+    "before_ms": 67.1382,
+    "simulated_seconds": 150
+  }
+}

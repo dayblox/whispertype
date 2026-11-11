@@ -36,6 +36,7 @@ static CAPTURE: AtomicBool = AtomicBool::new(false);
 static DOWN: AtomicBool = AtomicBool::new(false);
 static HOTKEY: AtomicU32 = AtomicU32::new(VK_SPACE as u32);
 static MODIFIERS: AtomicU32 = AtomicU32::new(1);
+static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
 thread_local! {
     static ICON:Cell<HICON>=const{Cell::new(null_mut())};
     static OVERLAY:Cell<HWND>=const{Cell::new(null_mut())};
@@ -238,8 +239,13 @@ unsafe extern "system" fn window_proc(window: HWND, msg: u32, w: WPARAM, l: LPAR
             0
         }
         _ => {
-            let taskbar = RegisterWindowMessageW(wide("TaskbarCreated").as_ptr());
-            if msg == taskbar && SNAPSHOT.get().is_some() && !CAPTURE.load(Ordering::Relaxed) {
+            let taskbar = *TASKBAR_CREATED
+                .get_or_init(|| RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()));
+            if taskbar != 0
+                && msg == taskbar
+                && SNAPSHOT.get().is_some()
+                && !CAPTURE.load(Ordering::Relaxed)
+            {
                 tray(NIM_ADD);
                 return 0;
             }
@@ -590,22 +596,12 @@ pub fn type_text(text: &str) -> Result<()> {
     unsafe {
         // Bound each batch and avoid a syscall per character. UTF-16 surrogate
         // pairs remain adjacent and the clipboard is never modified.
-        let mut units = text.encode_utf16().peekable();
-        while units.peek().is_some() {
+        let mut units = text.encode_utf16();
+        loop {
             let mut inputs: [INPUT; 128] = zeroed();
-            let mut count = 0;
-            for unit in units.by_ref().take(64) {
-                for flags in [KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP] {
-                    inputs[count].r#type = INPUT_KEYBOARD;
-                    inputs[count].Anonymous.ki = KEYBDINPUT {
-                        wVk: 0,
-                        wScan: unit,
-                        dwFlags: flags,
-                        time: 0,
-                        dwExtraInfo: 0,
-                    };
-                    count += 1;
-                }
+            let count = unicode_batch(&mut units, &mut inputs);
+            if count == 0 {
+                break;
             }
             ensure!(
                 SendInput(count as u32, inputs.as_ptr(), size_of::<INPUT>() as i32) == count as u32,
@@ -614,6 +610,28 @@ pub fn type_text(text: &str) -> Result<()> {
         }
         Ok(())
     }
+}
+
+fn unicode_batch(units: &mut impl Iterator<Item = u16>, inputs: &mut [INPUT; 128]) -> usize {
+    let mut count = 0;
+    // Leave room for a low surrogate if the 63rd unit is a high surrogate.
+    for unit in units.by_ref() {
+        for flags in [KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP] {
+            inputs[count].r#type = INPUT_KEYBOARD;
+            inputs[count].Anonymous.ki = KEYBDINPUT {
+                wVk: 0,
+                wScan: unit,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+            count += 1;
+        }
+        if count >= 126 && !(0xd800..=0xdbff).contains(&unit) {
+            break;
+        }
+    }
+    count
 }
 pub fn set_shortcut(_paths: &Paths, config: &Config) -> Result<()> {
     let shortcut = Shortcut::parse(&config.shortcut)?;
@@ -804,3 +822,7 @@ pub fn install(paths: &Paths, _config: &Config) -> Result<()> {
     );
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "windows_tests.rs"]
+mod tests;

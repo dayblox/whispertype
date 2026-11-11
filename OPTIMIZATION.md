@@ -36,6 +36,11 @@ working-set eviction are used.
 - Retain compact release code generation. Speed-oriented compiler settings
   were benchmarked but increased idle memory. The algorithmic improvements
   work without retaining that cost.
+- Cache the Windows `TaskbarCreated` message ID once instead of registering it
+  again on ordinary window messages. Keep Unicode surrogate pairs within
+  bounded `SendInput` batches, including emoji on a batch boundary.
+- Link the MSVC runtime statically for a self-contained native Windows EXE.
+  Validate the GUI subsystem and system-only DLL imports on every build.
 
 ## Reproduce
 
@@ -70,8 +75,13 @@ illustrates the wake gate and does not represent every real room.
 
 ## Remaining limits
 
-Windows is cross-compiled and checked; its real desktop/microphone behavior
-and resource use still need Windows hardware testing. A live Groq upload was
-not measured because no API key was supplied. The bundled synthesized wake
+Native Windows build, desktop, microphone, and release allocation benchmarks
+now pass. Reproduce with `scripts/build-windows.ps1 -Benchmark -DesktopTests
+-MicrophoneTest`. Profile the release app with `scripts/measure-windows.ps1`;
+this opens the microphone in a disposable profile and cancels all recordings.
+See `benchmarks/windows-resources.json` and `VALIDATION.md` for the hardware
+sample and its limits. No new whole-app before/after reduction is claimed for
+the small Windows changes. A live Groq upload was not measured because no API
+key was supplied. The bundled synthesized wake
 model remains experimental; personal enrollment is recommended. This is a
 measured optimization pass, not proof of a theoretical resource minimum.

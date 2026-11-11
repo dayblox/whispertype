@@ -23,9 +23,19 @@ The script installs under `%LOCALAPPDATA%\Whispertype`, asks for a [Groq API key
 
 For portable use, run `whispertype.exe` after saving your key as `%APPDATA%\whispertype\groq.key`. The tray icon may initially be in the taskbar overflow. Do not run as administrator: input into elevated applications or secure desktops is blocked by Windows. Some games and custom text controls do not accept Unicode `SendInput`.
 
-To build on Windows, install Rust and the Visual Studio C++ build tools, then `cargo build --release --locked`. The resulting `target\release\whispertype.exe` is the application. `uninstall-windows.ps1` removes startup registration and the installed binary while retaining settings.
+To build on Windows, install Rust, the Visual Studio C++ build tools, and Python 3.11+ (packaging only), then run:
 
-**Validation:** Windows code is cross-compiled from Linux. Real Windows microphone, tray, keyboard hook, and text-injection testing still needs to be performed on a Windows desktop; this is an initial implementation, not a Windows-certified release.
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
+# Optional local checks (opens a test window and the microphone):
+.\scripts\build-windows.ps1 -Benchmark -DesktopTests -MicrophoneTest
+```
+
+The script checks formatting, runs unit tests and Clippy, builds the native release EXE, verifies its GUI subsystem/system-only DLL imports and redirected CLI/worker output, then tests and creates the installable ZIP plus `SHA256SUMS`. Outputs: `target\release\whispertype.exe` and `dist\whispertype-windows-x64.zip`. The MSVC runtime is linked statically; end users need no Python or C++ runtime installation. For just the binary, `cargo build --release --locked` still works. `uninstall-windows.ps1` removes startup registration and the installed binary while retaining settings.
+
+**Automatic builds:** every push to `main`, pull request, and manual run of [Build and test](https://github.com/dayblox/whisper/actions/workflows/build.yml) builds and checks Windows and Linux. In a successful run's **Artifacts**, download `whispertype-windows-x64-exe` for the portable EXE, or `whispertype-Windows-x64` for the installable ZIP and checksums. Artifacts are retained for 30 days and require a GitHub sign-in. No API key is needed for CI. There is no automatic GitHub Release publication.
+
+**Validation:** native Windows unit, microphone, and desktop smoke tests now pass. The desktop check types Unicode into its own native edit field, exercises hook transitions and IPC, and checks the indicator does not steal focus. Physical shortcut use, personal wake accuracy, application-specific typing, sign-in startup, and live Groq transcription remain manual checks. See `VALIDATION.md`.
 
 ## Linux
 
