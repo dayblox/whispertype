@@ -610,45 +610,49 @@ pub fn open_releases() -> Result<()> {
     Ok(())
 }
 pub fn type_text(text: &str) -> Result<()> {
-    unsafe {
-        // Bound each batch and avoid a syscall per character. UTF-16 surrogate
-        // pairs remain adjacent and the clipboard is never modified.
-        let mut units = text.encode_utf16();
-        loop {
-            let mut inputs: [INPUT; 128] = zeroed();
-            let count = unicode_batch(&mut units, &mut inputs);
-            if count == 0 {
-                break;
-            }
-            ensure!(
-                SendInput(count as u32, inputs.as_ptr(), size_of::<INPUT>() as i32) == count as u32,
-                "Windows blocked typing; target may be elevated or on a secure desktop"
-            );
-        }
-        Ok(())
-    }
+    send_unicode(text, |inputs| unsafe {
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            size_of::<INPUT>() as i32,
+        ) as usize
+    })
 }
 
-fn unicode_batch(units: &mut impl Iterator<Item = u16>, inputs: &mut [INPUT; 128]) -> usize {
-    let mut count = 0;
-    // Leave room for a low surrogate if the 63rd unit is a high surrogate.
-    for unit in units.by_ref() {
-        for flags in [KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP] {
-            inputs[count].r#type = INPUT_KEYBOARD;
-            inputs[count].Anonymous.ki = KEYBDINPUT {
-                wVk: 0,
-                wScan: unit,
-                dwFlags: flags,
-                time: 0,
-                dwExtraInfo: 0,
-            };
-            count += 1;
+fn send_unicode(text: &str, mut send: impl FnMut(&[INPUT]) -> usize) -> Result<()> {
+    // Bulk Unicode packets corrupted/dropped ordinary ASCII in modern Notepad
+    // during the user's live test. One scalar's down/up pair(s) per call worked.
+    // Reuse fixed storage: no clipboard access, allocation, sleeps or input guard.
+    let mut inputs: [INPUT; 4] = unsafe { zeroed() };
+    for ch in text.chars() {
+        let mut encoded = [0; 2];
+        let units = ch.encode_utf16(&mut encoded);
+        let mut count = 0;
+        for &unit in units.iter() {
+            for flags in [KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP] {
+                inputs[count].r#type = INPUT_KEYBOARD;
+                inputs[count].Anonymous.ki = KEYBDINPUT {
+                    wVk: 0,
+                    wScan: unit,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
+                };
+                count += 1;
+            }
         }
-        if count >= 126 && !(0xd800..=0xdbff).contains(&unit) {
-            break;
+        let sent = send(&inputs[..count]);
+        if sent != count {
+            // Do not resend characters: part of the text may already be inserted.
+            // Best-effort releases cannot add text if a down event was accepted.
+            if sent > 0 {
+                let releases = [inputs[1], inputs[3]];
+                let _ = send(&releases[..units.len()]);
+            }
+            anyhow::bail!("Windows blocked typing; target may be elevated or on a secure desktop");
         }
     }
-    count
+    Ok(())
 }
 pub fn set_shortcut(_paths: &Paths, config: &Config) -> Result<()> {
     let shortcut = Shortcut::parse(&config.shortcut)?;

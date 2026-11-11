@@ -473,3 +473,8 @@ pub fn wav(samples: &[i16]) -> Result<Vec<u8>> {
 #[cfg(test)]
 #[path = "audio_tests.rs"]
 mod tests;
+
+#[cfg(all(test, windows))]
+pub(crate) fn test_allocations(action: impl FnOnce()) -> (usize, usize) {
+    tests::allocations(action)
+}

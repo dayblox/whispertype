@@ -1,0 +1,28 @@
+{
+  "version": "0.1.6",
+  "platform": "Windows x64",
+  "methodology": "Seven-run median; actual production encoder with a simulated successful SendInput sink. Preparation only: Windows API and destination processing excluded. Allocation count covers 1000 insertions. No clipboard access or keyboard injection in the benchmark.",
+  "results": [
+    {
+      "allocations_per_1000_insertions": 0,
+      "event_buffer_bytes": 160,
+      "preparation_microseconds": 0.11827,
+      "utf16_units": 29,
+      "words": 5
+    },
+    {
+      "allocations_per_1000_insertions": 0,
+      "event_buffer_bytes": 160,
+      "preparation_microseconds": 0.23665,
+      "utf16_units": 59,
+      "words": 10
+    },
+    {
+      "allocations_per_1000_insertions": 0,
+      "event_buffer_bytes": 160,
+      "preparation_microseconds": 1.2318900000000002,
+      "utf16_units": 299,
+      "words": 50
+    }
+  ]
+}

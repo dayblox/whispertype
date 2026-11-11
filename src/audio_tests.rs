@@ -170,7 +170,7 @@ unsafe impl GlobalAlloc for Allocator {
     }
 }
 // Used only by the explicitly selected, single-threaded benchmark test below.
-fn allocations(action: impl FnOnce()) -> (usize, usize) {
+pub(super) fn allocations(action: impl FnOnce()) -> (usize, usize) {
     ALLOCS.store(0, Ordering::Relaxed);
     LIVE.store(0, Ordering::Relaxed);
     PEAK.store(0, Ordering::Relaxed);

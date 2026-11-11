@@ -182,39 +182,118 @@ fn shortcut_virtual_keys_and_modifiers() {
 }
 
 #[test]
-fn unicode_batches_preserve_surrogate_pairs_and_key_releases() {
-    for prefix in 0..128 {
-        let text = format!("{}🎙é你好{}", "a".repeat(prefix), "🙂".repeat(80));
-        let mut units = text.encode_utf16();
+fn unicode_insertion_sends_one_scalar_per_call_with_paired_releases() {
+    let mut examples = vec![
+        String::new(),
+        "Hey, how are you?".into(),
+        "Hey, how are you? I'm just wondering what's the best method to encrypt the data?".into(),
+        "Été — 日本語 👩‍💻 🙂\nSecond line\tTabbed".into(),
+    ];
+    examples
+        .extend((0..128).map(|prefix| format!("{}🎙é你好{}", "a".repeat(prefix), "🙂".repeat(80))));
+    for text in examples {
         let mut received = Vec::new();
-        loop {
-            let mut inputs: [INPUT; 128] = unsafe { zeroed() };
-            let count = unicode_batch(&mut units, &mut inputs);
-            if count == 0 {
-                break;
-            }
-            assert!(count <= inputs.len());
-            let mut batch = Vec::new();
-            for pair in inputs[..count].as_chunks::<2>().0 {
+        let mut calls = 0;
+        send_unicode(&text, |inputs| {
+            assert!(inputs.len() == 2 || inputs.len() == 4);
+            let mut character = Vec::new();
+            for pair in inputs.as_chunks::<2>().0 {
                 unsafe {
                     assert_eq!(pair[0].r#type, INPUT_KEYBOARD);
+                    assert_eq!(pair[0].Anonymous.ki.wVk, 0);
                     assert_eq!(pair[0].Anonymous.ki.dwFlags, KEYEVENTF_UNICODE);
                     assert_eq!(
                         pair[1].Anonymous.ki.dwFlags,
                         KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
                     );
                     assert_eq!(pair[0].Anonymous.ki.wScan, pair[1].Anonymous.ki.wScan);
-                    batch.push(pair[0].Anonymous.ki.wScan);
+                    character.push(pair[0].Anonymous.ki.wScan);
                 }
             }
-            assert!(
-                String::from_utf16(&batch).is_ok(),
-                "surrogate split between batches"
+            let decoded = String::from_utf16(&character).expect("Split surrogate pair");
+            assert_eq!(
+                decoded.chars().count(),
+                1,
+                "Multiple characters in one input call"
             );
-            received.extend(batch);
-        }
+            received.extend(character);
+            calls += 1;
+            inputs.len()
+        })
+        .unwrap();
+        assert_eq!(calls, text.chars().count());
         assert_eq!(String::from_utf16(&received).unwrap(), text);
     }
+}
+
+#[test]
+fn interrupted_unicode_insertion_releases_keys_and_does_not_retry_text() {
+    for (text, count) in [("ab", 2), ("🙂b", 4)] {
+        for accepted in 0..count {
+            let mut calls = 0;
+            assert!(send_unicode(text, |inputs| {
+                calls += 1;
+                if calls == 1 {
+                    assert_eq!(inputs.len(), count);
+                    accepted
+                } else {
+                    assert_eq!(calls, 2, "Typed more characters after interruption");
+                    for input in inputs {
+                        assert_eq!(
+                            unsafe { input.Anonymous.ki.dwFlags },
+                            KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
+                        );
+                    }
+                    inputs.len()
+                }
+            })
+            .is_err());
+            assert_eq!(calls, if accepted == 0 { 1 } else { 2 });
+        }
+    }
+}
+
+#[test]
+#[ignore = "Offline allocation/timing benchmark; run alone with --test-threads=1"]
+fn unicode_insertion_benchmark() {
+    use std::hint::black_box;
+    let mut report = Vec::new();
+    for words in [5, 10, 50] {
+        let text = vec!["hello"; words].join(" ");
+        send_unicode(&text, |inputs| inputs.len()).unwrap();
+        let (allocations, _) = crate::audio::test_allocations(|| {
+            for _ in 0..1000 {
+                send_unicode(black_box(&text), |inputs| {
+                    black_box(inputs);
+                    inputs.len()
+                })
+                .unwrap();
+            }
+        });
+        assert_eq!(
+            allocations, 0,
+            "Insertion allocated during successful delivery"
+        );
+        let mut times = Vec::new();
+        for _ in 0..7 {
+            let start = Instant::now();
+            for _ in 0..10_000 {
+                send_unicode(black_box(&text), |inputs| {
+                    black_box(inputs);
+                    inputs.len()
+                })
+                .unwrap();
+            }
+            times.push(start.elapsed().as_secs_f64() * 1e6 / 10_000.);
+        }
+        times.sort_by(f64::total_cmp);
+        report.push(
+            serde_json::json!({"words":words,"utf16_units":text.encode_utf16().count(),
+            "allocations_per_1000_insertions":allocations,"preparation_microseconds":times[3],
+            "event_buffer_bytes":size_of::<[INPUT;4]>()}),
+        );
+    }
+    println!("INSERTION_JSON={}", serde_json::json!(report));
 }
 
 unsafe fn pump() {

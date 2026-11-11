@@ -22,6 +22,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Windows executable validation failed' }
     if ($Benchmark) {
         Invoke-Cargo -Arguments @('test', '--release', '--locked', 'optimization_benchmark', '--', '--ignored', '--nocapture', '--test-threads=1')
+        Invoke-Cargo -Arguments @('test', '--release', '--locked', 'unicode_insertion_benchmark', '--', '--ignored', '--nocapture', '--test-threads=1')
     }
     if ($DesktopTests) {
         Invoke-Cargo -Arguments @('test', '--locked', 'windows_desktop_smoke', '--', '--ignored', '--nocapture', '--test-threads=1')

@@ -7,6 +7,19 @@ not supplied during development.
 
 ## Completed checks
 
+- v0.1.6: a user-run test in modern Notepad reproduced corruption with bulk
+  Unicode input and confirmed the complete 17-character greeting with
+  character-pair calls and no added delay. The app uses that successful
+  pattern. Protocol regressions cover the exact short and long reported
+  sentences, multilingual text, combining/ZWJ sequences and surrogate pairs.
+  A failed/partial submission stops further text and attempts only key-up
+  cleanup, preventing an automatic duplicate retry. Ordinary Windows tests
+  now total **31 passed**, with six opt-in checks. The offline insertion
+  benchmark checks zero allocations with a simulated successful input sink;
+  it does not measure Windows API/destination-app latency. Automatic live
+  Notepad testing was unavailable because the Windows UI-control bridge was
+  disconnected. The user-run diagnostic supplies the live compatibility
+  observation; the new app release still needs its normal application testing.
 - v0.1.5: **30 Windows functional tests pass**, with five opt-in tests;
   two vendored MFCC/DTW equivalence tests also pass in debug and release.
   The retained original extractor verifies bit-identical features across

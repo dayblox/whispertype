@@ -46,6 +46,12 @@ The script checks formatting, runs unit tests and Clippy, builds the native rele
 
 **Validation:** native Windows unit, microphone, and desktop smoke tests now pass. The desktop check types Unicode into its own native edit field, exercises hook transitions and IPC, and checks the indicator does not steal focus. Physical shortcut use, personal wake accuracy, application-specific typing, sign-in startup, and live Groq transcription remain manual checks. See `VALIDATION.md`.
 
+Windows v0.1.6 sends one Unicode character's key-down/up events per input call.
+This follows a live Notepad test where bulk input corrupted or dropped text,
+while character pairs inserted the complete greeting correctly. There is no
+artificial typing delay or clipboard replacement. Emoji surrogate pairs stay
+together. The receiving app still determines repaint and undo behavior.
+
 ## Linux
 
 Tested desktop: Omarchy / Hyprland with Lua configuration and PipeWire's ALSA compatibility layer. GNOME, X11, and generic non-Hyprland shortcut setup are not implemented. Release binaries are built on Ubuntu 22.04 (glibc 2.35+) and require ALSA/PipeWire, `libxkbcommon`, `wtype`, a StatusNotifier tray host, a layer-shell compositor and systemd user services. On Arch/Omarchy these runtime components are normally installed.

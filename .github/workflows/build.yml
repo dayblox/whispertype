@@ -91,15 +91,31 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: release-*-x64
-          path: incoming
+      - name: Download platform assets through the REST API
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The artifact SDK's signed-URL endpoint returned HTML error pages.
+          # Use the independently available REST route and a fresh directory
+          # on retry; release.py still verifies both manifests and every hash.
+          for attempt in 1 2 3; do
+            incoming="$RUNNER_TEMP/whispertype-artifacts-$GITHUB_RUN_ID-$attempt"
+            if gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'release-*-x64' --dir "$incoming"; then
+              mv "$incoming" incoming
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo 'Unable to download the platform artifacts after three attempts.'
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
       - name: Verify and publish installers and standalones
         env:
           GH_TOKEN: ${{ github.token }}
