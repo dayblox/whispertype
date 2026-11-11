@@ -7,8 +7,15 @@ not supplied during development.
 
 ## Completed checks
 
-- v0.1.2: hidden native-window tests verify immediate notification replacement,
-  expiry without stopping the tray, and Unicode prompt Save/Cancel behavior.
+- v0.1.3: hidden native-window tests verify that consecutive Windows
+  notifications retain only the latest result and do not stop the tray.
+  Prompt Save/Cancel preserves Unicode. Enrollment tests cover the local
+  phrase-test countdown, timeout/retry and explicit Enable action.
+  A trained-reference regression recognizes a repeat at half volume;
+  this synthetic check does not establish real microphone accuracy.
+  Installer CI upgrades with two lingering helpers, preserves a saved key,
+  confirms replacement input is initially disabled, and leaves a different
+  EXE copy running. Uninstall also closes a lingering helper.
   Enrollment state tests cover per-sample clicks, countdowns without audio,
   silence timeouts, short/long retries, and three successful captures.
 - Mock Groq uploads assert the custom prompt field and its exact text. Wake
@@ -19,7 +26,7 @@ not supplied during development.
 - Windows builds contain icon and group-icon resources, and the Windows shell
   can extract the icon. Inno Setup and Start Menu shortcuts use the embedded icon.
 
-- Native Windows x64 MSVC: **23 functional tests pass**, with three explicit
+- Native Windows x64 MSVC: **25 functional tests pass**, with three explicit
   opt-in tests (offline benchmark, interactive desktop, physical microphone).
   Packaging tests cover Windows/Linux archives, standalone outputs, repeat
   runs, checksums, and missing inputs. On Linux, a fake app verifies the
@@ -77,8 +84,8 @@ not supplied during development.
   inactive; the compositor confirms mapping, not final pixel appearance.
 - Unicode text was accepted by `wtype` after correcting its argument handling.
   There was no focused window in this desktop session, so insertion into a
-  real text field could not be verified. The app refuses automatic insertion
-  when it cannot identify the focused window.
+  real text field could not be verified in that historical check. v0.1.3
+  removes that focus guard and sends text to the current target unconditionally.
 - `cargo fmt --check`, `git diff --check`, shell syntax checks, Python script
   syntax checks, and archive contents checks.
 
@@ -164,7 +171,7 @@ buffers for a 120-second recording. The reference implementation retains
 ## Before relying on the Windows release
 
 Run it on Windows 10/11 with your actual microphone and API key. Check tap vs
-hold, shortcut capture, tray actions, focus-change protection, Unicode typing
+hold, shortcut capture, tray actions, Unicode typing into the current target
 in the applications you use, sign-in startup, and your voice's wake-phrase
 accuracy. The GitHub Actions workflow runs native Windows build/unit/packaging
 tests on every push to `main`, version tag, pull request, and manual dispatch.

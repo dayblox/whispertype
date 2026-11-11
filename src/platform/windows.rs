@@ -23,11 +23,14 @@ use windows_sys::Win32::{
     UI::{Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
 };
 mod ui;
+mod upgrade;
+pub use upgrade::stop_for_upgrade;
 
 const CALLBACK: u32 = WM_APP + 1;
 const UPDATE: u32 = WM_APP + 2;
 const NOTICE: u32 = WM_APP + 3;
 const CONTROL: u32 = WM_APP + 4;
+const NOTIFICATION_TIMER: usize = 2;
 #[cfg(not(test))]
 const CLASS: &str = "Whispertype.Native.Tray.v1";
 #[cfg(test)]
@@ -48,6 +51,7 @@ thread_local! {
     static ICON:Cell<HICON>=const{Cell::new(null_mut())};
     static OVERLAY:Cell<HWND>=const{Cell::new(null_mut())};
     static OVERLAY_STATE:RefCell<String>=const{RefCell::new(String::new())};
+    static PENDING_NOTIFICATION: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
@@ -194,10 +198,8 @@ unsafe fn create_window(
 unsafe extern "system" fn window_proc(window: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     match msg {
         CALLBACK => {
-            if l as u32 == WM_RBUTTONUP {
+            if matches!(l as u32, WM_RBUTTONUP | WM_LBUTTONUP) {
                 menu(window);
-            } else if l as u32 == WM_LBUTTONUP {
-                event("toggle");
             }
             0
         }
@@ -210,13 +212,21 @@ unsafe extern "system" fn window_proc(window: HWND, msg: u32, w: WPARAM, l: LPAR
             0
         }
         NOTICE => {
-            let message = Box::from_raw(l as *mut (String, bool));
-            ui::notice(&message.0, message.1);
+            let message = Box::from_raw(l as *mut String);
+            queue_notification(window, *message);
             0
         }
         CONTROL => {
             if let Some(command) = CONTROL_COMMANDS.get(w) {
                 event(command);
+            }
+            0
+        }
+        WM_TIMER if w == NOTIFICATION_TIMER => {
+            KillTimer(window, NOTIFICATION_TIMER);
+            if let Some(message) = PENDING_NOTIFICATION.with(|pending| pending.borrow_mut().take())
+            {
+                shell_notification(window, &message);
             }
             0
         }
@@ -364,8 +374,8 @@ unsafe fn create_menu(s: &Snapshot) -> HMENU {
         s.wake,
     );
     append(root, 31, "Record personal wake phrase…", false);
+    append(root, 45, "Test personal wake phrase…", false);
     AppendMenuW(root, MF_SEPARATOR, 0, null());
-    append(root, 40, "Reload settings from file", false);
     append(root, 44, "Transcription prompt…", false);
     append(root, 43, "Launch at startup", s.startup);
     append(root, 42, "Check for updates", false);
@@ -406,11 +416,11 @@ unsafe fn menu(window: HWND) {
             }
         }
         31 => "enroll",
-        40 => "reload",
         41 => "quit",
         42 => "check-updates",
         43 => "startup-toggle",
         44 => "prompt-edit",
+        45 => "wake-test",
         _ => return,
     };
     event(command);
@@ -498,7 +508,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, w: WPARAM, l: LPARAM) -> LRES
     CallNextHookEx(null_mut(), code, w, l)
 }
 
-const CONTROL_COMMANDS: [&str; 19] = [
+const CONTROL_COMMANDS: [&str; 20] = [
     "press",
     "release",
     "toggle",
@@ -518,6 +528,7 @@ const CONTROL_COMMANDS: [&str; 19] = [
     "enroll-next",
     "enroll-cancel",
     "prompt-edit",
+    "wake-test",
 ];
 pub fn send(command: &str) -> Result<()> {
     unsafe {
@@ -539,32 +550,37 @@ pub fn edit_prompt(current: &str) -> Result<Option<String>> {
     unsafe { ui::edit_prompt(current) }
 }
 pub fn notify(message: &str) {
-    feedback(message, false);
-}
-pub fn progress(message: &str) {
-    feedback(message, true);
-}
-fn feedback(message: &str, persistent: bool) {
     unsafe {
-        // NOTICE carries an owned pointer and must stay within this process.
         let window = hwnd();
         if !window.is_null() {
-            let text = Box::into_raw(Box::new((message.to_string(), persistent)));
+            let text = Box::into_raw(Box::new(message.to_string()));
             if PostMessageW(window, NOTICE, 0, text as isize) == 0 {
                 drop(Box::from_raw(text));
             }
         }
     }
 }
-pub fn focused_window() -> Option<String> {
-    unsafe {
-        let w = GetForegroundWindow();
-        if w.is_null() {
-            None
-        } else {
-            Some(format!("{}", w as usize))
-        }
-    }
+pub fn update_notification(message: &str) {
+    notify(message);
+}
+unsafe fn shell_notification(window: HWND, message: &str) {
+    let mut data: NOTIFYICONDATAW = zeroed();
+    data.cbSize = size_of::<NOTIFYICONDATAW>() as u32;
+    data.hWnd = window;
+    data.uID = 1;
+    data.uFlags = NIF_INFO | NIF_REALTIME;
+    data.dwInfoFlags = NIIF_INFO | NIIF_RESPECT_QUIET_TIME;
+    copy_wide(&mut data.szInfoTitle, "Whispertype");
+    copy_wide(&mut data.szInfo, message);
+    Shell_NotifyIconW(NIM_MODIFY, &data);
+}
+unsafe fn queue_notification(window: HWND, message: String) {
+    // An empty NIF_INFO removes our currently visible Windows notification.
+    // Give Explorer time to dismiss it, coalesce bursts, then show only the
+    // latest result. No long-lived timer or notification FIFO is maintained.
+    shell_notification(window, "");
+    PENDING_NOTIFICATION.with(|pending| *pending.borrow_mut() = Some(message));
+    SetTimer(window, NOTIFICATION_TIMER, 200, None);
 }
 pub fn open_releases() -> Result<()> {
     unsafe {

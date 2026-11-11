@@ -15,7 +15,9 @@ pub(crate) fn reference(config: &Config, paths: &Paths) -> Result<Rustpotter> {
     settings.detector.threshold = config.wake_threshold;
     settings.detector.avg_threshold = 0.2;
     settings.detector.min_scores = 3;
-    settings.detector.vad_mode = Some(rustpotter::VADMode::Easy);
+    // The outer energy gate already skips quiet audio. A second VAD can reject
+    // short phrases after its baseline resets at the beginning of each burst.
+    settings.detector.vad_mode = None;
     let mut detector = Rustpotter::new(&settings).map_err(anyhow::Error::msg)?;
     let data = std::fs::read(&paths.model)
         .context("Record a personal wake phrase before enabling wake listening")?;
@@ -120,6 +122,37 @@ pub fn train_buffers(name: &str, samples: HashMap<String, Vec<u8>>, target: &Pat
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn personally_trained_reference_recognizes_a_quieter_repeat() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = Paths::at(temp.path().to_path_buf()).unwrap();
+        let config = Config::default();
+        let pcm: Vec<i16> = include_bytes!("../assets/test-positive.pcm")
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|v| i16::from_le_bytes(*v))
+            .collect();
+        let clip = audio::trim_speech(&pcm, config.speech_rms).unwrap();
+        let mut samples = HashMap::new();
+        for (i, gain) in [0.85, 1.0, 1.15].iter().enumerate() {
+            let scaled: Vec<i16> = clip
+                .iter()
+                .map(|s| (*s as f32 * gain).clamp(-32768.0, 32767.0) as i16)
+                .collect();
+            samples.insert(format!("{i}.wav"), audio::wav(&scaled).unwrap());
+        }
+        train_buffers("Test phrase", samples, &paths.model).unwrap();
+        let mut detector = detector(&config, &paths).unwrap();
+        let mut input = vec![0i16; audio::RATE];
+        input.extend(pcm.iter().map(|s| (*s as f32 * 0.5) as i16));
+        input.extend(vec![0i16; audio::RATE * 3]);
+        assert!(input
+            .as_chunks::<{ audio::FRAME }>()
+            .0
+            .iter()
+            .any(|frame| detector.process(frame)));
+    }
     #[test]
     fn quiet_gate_rearms_and_preserves_phrase_after_long_silence() {
         let temp = tempfile::tempdir().unwrap();

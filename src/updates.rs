@@ -100,7 +100,6 @@ pub fn start() -> Result<()> {
             return Err(error.into());
         }
     };
-    crate::platform::progress("Checking for updates…");
     std::thread::spawn(move || {
         let result = (|| -> Result<Reply> {
             let mut data = Vec::new();
@@ -136,7 +135,7 @@ pub fn start() -> Result<()> {
             }
         };
         CHECKING.store(false, Ordering::Relaxed);
-        crate::platform::notify(&message);
+        crate::platform::update_notification(&message);
     });
     Ok(())
 }

@@ -1,22 +1,116 @@
 use super::*;
+use windows_sys::Win32::UI::Controls::{DRAWITEMSTRUCT, ODS_DISABLED, ODS_FOCUS};
 
-const NOTE_ROLE: isize = 1;
 const ENROLL_ROLE: isize = 2;
 const PROMPT_ROLE: isize = 3;
 const ACTION: usize = 100;
 const CANCEL: usize = 101;
 const TEXT: i32 = 102;
+const TEST: usize = 103;
+const HEADING: usize = 104;
 // Standard STATIC/EDIT control messages (winuser.h).
-const SS_NOTIFY: u32 = 0x0100;
 const EM_SETLIMITTEXT: u32 = 0x00c5;
 #[cfg(not(test))]
 const UI_CLASS: &str = "Whispertype.Feedback.v2";
 #[cfg(test)]
 const UI_CLASS: &str = "Whispertype.Test.Feedback.v2";
 thread_local! {
-    static NOTE: Cell<HWND> = const { Cell::new(null_mut()) };
     static ENROLL: Cell<HWND> = const { Cell::new(null_mut()) };
     static PROMPT_REPLY: RefCell<Option<String>> = const { RefCell::new(None) };
+    static THEME: Theme = unsafe { Theme::new() };
+}
+
+const fn rgb(r: u32, g: u32, b: u32) -> u32 {
+    r | (g << 8) | (b << 16)
+}
+const SURFACE: u32 = rgb(23, 27, 36);
+const FOREGROUND: u32 = rgb(235, 240, 246);
+const ACCENT: u32 = rgb(158, 206, 106);
+struct Theme {
+    brush: HBRUSH,
+    normal: HFONT,
+    heading: HFONT,
+}
+impl Theme {
+    unsafe fn new() -> Self {
+        let font = |height, weight| {
+            CreateFontW(
+                height,
+                0,
+                0,
+                0,
+                weight,
+                0,
+                0,
+                0,
+                DEFAULT_CHARSET as u32,
+                OUT_DEFAULT_PRECIS as u32,
+                CLIP_DEFAULT_PRECIS as u32,
+                CLEARTYPE_QUALITY as u32,
+                DEFAULT_PITCH as u32,
+                wide("Segoe UI").as_ptr(),
+            )
+        };
+        Self {
+            brush: CreateSolidBrush(SURFACE),
+            normal: font(-16, FW_NORMAL as i32),
+            heading: font(-17, FW_SEMIBOLD as i32),
+        }
+    }
+}
+impl Drop for Theme {
+    fn drop(&mut self) {
+        unsafe {
+            DeleteObject(self.brush);
+            DeleteObject(self.normal);
+            DeleteObject(self.heading);
+        }
+    }
+}
+unsafe fn paint_button(data: &DRAWITEMSTRUCT) {
+    THEME.with(|theme| {
+        let primary = data.CtlID == ACTION as u32;
+        let color = if data.itemState & ODS_DISABLED != 0 {
+            rgb(43, 50, 62)
+        } else if primary {
+            ACCENT
+        } else {
+            rgb(49, 57, 73)
+        };
+        let brush = CreateSolidBrush(color);
+        let old_brush = SelectObject(data.hDC, brush);
+        let old_pen = SelectObject(data.hDC, GetStockObject(NULL_PEN));
+        let r = data.rcItem;
+        RoundRect(data.hDC, r.left, r.top, r.right, r.bottom, 12, 12);
+        SelectObject(data.hDC, old_pen);
+        SelectObject(data.hDC, old_brush);
+        DeleteObject(brush);
+        let old = SelectObject(data.hDC, theme.normal);
+        SetBkMode(data.hDC, TRANSPARENT as i32);
+        SetTextColor(
+            data.hDC,
+            if primary && data.itemState & ODS_DISABLED == 0 {
+                SURFACE
+            } else {
+                FOREGROUND
+            },
+        );
+        let mut text = [0u16; 100];
+        let n = GetWindowTextW(data.hwndItem, text.as_mut_ptr(), 100);
+        let mut rect = r;
+        DrawTextW(
+            data.hDC,
+            text.as_ptr(),
+            n,
+            &mut rect,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+        );
+        if data.itemState & ODS_FOCUS != 0 {
+            InflateRect(&mut rect, -4, -4);
+            DrawFocusRect(data.hDC, &rect);
+        }
+        SelectObject(data.hDC, old);
+    });
 }
 
 unsafe fn shell(role: isize, title: &str, width: i32, height: i32) -> Result<HWND> {
@@ -26,7 +120,7 @@ unsafe fn shell(role: isize, title: &str, width: i32, height: i32) -> Result<HWN
         lpfnWndProc: Some(proc),
         hInstance: instance,
         lpszClassName: name.as_ptr(),
-        hbrBackground: (COLOR_WINDOW + 1) as HBRUSH,
+        hbrBackground: null_mut(),
         hCursor: LoadCursorW(null_mut(), IDC_ARROW),
         hIcon: LoadIconW(instance, std::ptr::without_provenance::<u16>(1)),
         ..zeroed()
@@ -39,25 +133,11 @@ unsafe fn shell(role: isize, title: &str, width: i32, height: i32) -> Result<HWN
         GetMonitorInfoW(monitor, &mut info) != 0,
         "Could not locate display"
     );
-    let (x, y) = if role == NOTE_ROLE {
-        (
-            info.rcWork.right - width - 12,
-            info.rcWork.bottom - height - 12,
-        )
-    } else {
-        (
-            (info.rcWork.left + info.rcWork.right - width) / 2,
-            (info.rcWork.top + info.rcWork.bottom - height) / 2,
-        )
-    };
-    let (ex, style) = if role == NOTE_ROLE {
-        (
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-            WS_POPUP | WS_BORDER,
-        )
-    } else {
-        (WS_EX_TOOLWINDOW, WS_CAPTION | WS_SYSMENU | WS_OVERLAPPED)
-    };
+    let (x, y) = (
+        (info.rcWork.left + info.rcWork.right - width) / 2,
+        (info.rcWork.top + info.rcWork.bottom - height) / 2,
+    );
+    let (ex, style) = (WS_EX_TOOLWINDOW, WS_CAPTION | WS_SYSMENU | WS_OVERLAPPED);
     let window = CreateWindowExW(
         ex,
         name.as_ptr(),
@@ -74,6 +154,13 @@ unsafe fn shell(role: isize, title: &str, width: i32, height: i32) -> Result<HWN
     );
     ensure!(!window.is_null(), "Could not create feedback window");
     SetWindowLongPtrW(window, GWLP_USERDATA, role);
+    let dark = 1i32;
+    windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute(
+        window,
+        20,
+        &dark as *const _ as *const c_void,
+        4,
+    );
     Ok(window)
 }
 
@@ -102,7 +189,7 @@ unsafe fn control(
     SendMessageW(
         child,
         WM_SETFONT,
-        GetStockObject(DEFAULT_GUI_FONT) as usize,
+        THEME.with(|theme| theme.normal as usize),
         1,
     );
     child
@@ -111,18 +198,20 @@ unsafe fn control(
 unsafe extern "system" fn proc(window: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     let role = GetWindowLongPtrW(window, GWLP_USERDATA);
     match msg {
-        WM_TIMER if role == NOTE_ROLE => {
-            KillTimer(window, 1);
-            DestroyWindow(window);
-            0
+        WM_ERASEBKGND => {
+            let mut rect = zeroed();
+            GetClientRect(window, &mut rect);
+            THEME.with(|theme| FillRect(w as HDC, &rect, theme.brush));
+            1
         }
-        WM_LBUTTONUP if role == NOTE_ROLE => {
-            DestroyWindow(window);
-            0
+        WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT => {
+            SetTextColor(w as HDC, FOREGROUND);
+            SetBkColor(w as HDC, SURFACE);
+            THEME.with(|theme| theme.brush as isize)
         }
-        WM_COMMAND if role == NOTE_ROLE => {
-            DestroyWindow(window);
-            0
+        WM_DRAWITEM => {
+            paint_button(&*(l as *const DRAWITEMSTRUCT));
+            1
         }
         WM_COMMAND => {
             let command = w & 0xffff;
@@ -132,6 +221,9 @@ unsafe extern "system" fn proc(window: HWND, msg: u32, w: WPARAM, l: LPARAM) -> 
                 }
                 if command == CANCEL || command == IDCANCEL as usize {
                     event("enroll-cancel");
+                }
+                if command == TEST {
+                    event("wake-test");
                 }
             } else if role == PROMPT_ROLE {
                 if command == ACTION || command == IDOK as usize {
@@ -161,13 +253,6 @@ unsafe extern "system" fn proc(window: HWND, msg: u32, w: WPARAM, l: LPARAM) -> 
             0
         }
         WM_DESTROY => {
-            if role == NOTE_ROLE {
-                NOTE.with(|slot| {
-                    if slot.get() == window {
-                        slot.set(null_mut());
-                    }
-                });
-            }
             if role == ENROLL_ROLE {
                 ENROLL.with(|slot| {
                     if slot.get() == window {
@@ -184,42 +269,6 @@ unsafe extern "system" fn proc(window: HWND, msg: u32, w: WPARAM, l: LPARAM) -> 
     }
 }
 
-// A single app-owned card is replaced immediately and never queued by Explorer.
-pub(super) unsafe fn notice(text: &str, persistent: bool) {
-    notice_visible(text, persistent, true);
-}
-unsafe fn notice_visible(text: &str, persistent: bool, visible: bool) {
-    let current = NOTE.with(Cell::get);
-    let window = if current.is_null() {
-        let Ok(window) = shell(NOTE_ROLE, "Whispertype", 410, 128) else {
-            return;
-        };
-        control(window, "STATIC", "Whispertype", 0, [14, 10, 370, 20], 0);
-        control(
-            window,
-            "STATIC",
-            "",
-            SS_NOTIFY,
-            [14, 34, 375, 76],
-            TEXT as usize,
-        );
-        NOTE.with(|slot| slot.set(window));
-        window
-    } else {
-        current
-    };
-    let text: String = text.chars().take(500).collect();
-    SetWindowTextW(GetDlgItem(window, TEXT), wide(&text).as_ptr());
-    if persistent {
-        KillTimer(window, 1);
-    } else {
-        SetTimer(window, 1, 4000, None);
-    }
-    if visible {
-        ShowWindow(window, SW_SHOWNOACTIVATE);
-    }
-}
-
 pub(super) unsafe fn sync_enrollment() {
     let view = SNAPSHOT
         .get()
@@ -232,25 +281,40 @@ pub(super) unsafe fn sync_enrollment() {
         return;
     };
     let window = if current.is_null() {
-        let Ok(window) = shell(ENROLL_ROLE, "Personal wake phrase", 480, 245) else {
+        let Ok(window) = shell(ENROLL_ROLE, "Personal wake phrase", 560, 270) else {
             return;
         };
-        control(window, "STATIC", "", 0, [20, 18, 430, 126], TEXT as usize);
+        let title = control(window, "STATIC", "", 0, [24, 22, 500, 28], HEADING);
+        SendMessageW(
+            title,
+            WM_SETFONT,
+            THEME.with(|theme| theme.heading as usize),
+            1,
+        );
+        control(window, "STATIC", "", 0, [24, 62, 500, 92], TEXT as usize);
         control(
             window,
             "BUTTON",
             "Record sample",
-            WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
-            [20, 158, 225, 32],
+            WS_TABSTOP | BS_OWNERDRAW as u32,
+            [24, 170, 188, 38],
             ACTION,
         );
         control(
             window,
             "BUTTON",
             "Cancel",
-            WS_TABSTOP,
-            [332, 158, 110, 32],
+            WS_TABSTOP | BS_OWNERDRAW as u32,
+            [430, 170, 100, 38],
             CANCEL,
+        );
+        control(
+            window,
+            "BUTTON",
+            "Test phrase",
+            WS_TABSTOP | BS_OWNERDRAW as u32,
+            [228, 170, 184, 38],
+            TEST,
         );
         ENROLL.with(|slot| slot.set(window));
         ShowWindow(window, SW_SHOWNORMAL);
@@ -261,10 +325,18 @@ pub(super) unsafe fn sync_enrollment() {
     };
     SetWindowTextW(GetDlgItem(window, TEXT), wide(&view.text).as_ptr());
     SetWindowTextW(
+        GetDlgItem(window, HEADING as i32),
+        wide(&view.title).as_ptr(),
+    );
+    SetWindowTextW(
         GetDlgItem(window, ACTION as i32),
         wide(&view.action).as_ptr(),
     );
     EnableWindow(GetDlgItem(window, ACTION as i32), view.enabled as i32);
+    ShowWindow(
+        GetDlgItem(window, TEST as i32),
+        if view.done { SW_SHOW } else { SW_HIDE },
+    );
     SetWindowTextW(
         GetDlgItem(window, CANCEL as i32),
         wide(if view.done { "Close" } else { "Cancel" }).as_ptr(),
@@ -292,7 +364,7 @@ unsafe fn prompt_window(current: &str) -> Result<HWND> {
         window,
         "BUTTON",
         "Save",
-        WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
+        WS_TABSTOP | BS_OWNERDRAW as u32,
         [278, 268, 110, 30],
         ACTION,
     );
@@ -300,7 +372,7 @@ unsafe fn prompt_window(current: &str) -> Result<HWND> {
         window,
         "BUTTON",
         "Cancel",
-        WS_TABSTOP,
+        WS_TABSTOP | BS_OWNERDRAW as u32,
         [398, 268, 110, 30],
         CANCEL,
     );
@@ -324,10 +396,9 @@ pub(super) unsafe fn edit_prompt(current: &str) -> Result<Option<String>> {
 }
 
 pub(super) unsafe fn close_all() {
-    for window in [NOTE.with(Cell::get), ENROLL.with(Cell::get)] {
-        if !window.is_null() {
-            DestroyWindow(window);
-        }
+    let window = ENROLL.with(Cell::get);
+    if !window.is_null() {
+        DestroyWindow(window);
     }
 }
 
@@ -352,26 +423,6 @@ mod tests {
             SendMessageW(window, WM_COMMAND, CANCEL, 0);
             assert!(PROMPT_REPLY.with(|reply| reply.borrow().is_none()));
             PeekMessageW(&mut msg, null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE);
-        }
-    }
-    #[test]
-    fn feedback_replaces_in_place_and_expires_without_quitting_tray() {
-        unsafe {
-            notice_visible("Checking for updates", true, false);
-            let first = NOTE.with(Cell::get);
-            assert!(!first.is_null());
-            notice_visible("Up to date", false, false);
-            assert_eq!(first, NOTE.with(Cell::get));
-            let mut text = [0u16; 100];
-            let n = GetWindowTextW(GetDlgItem(first, TEXT), text.as_mut_ptr(), 100);
-            assert_eq!(String::from_utf16_lossy(&text[..n as usize]), "Up to date");
-            SendMessageW(first, WM_TIMER, 1, 0);
-            assert!(NOTE.with(Cell::get).is_null());
-            let mut msg: MSG = zeroed();
-            assert_eq!(
-                PeekMessageW(&mut msg, null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE),
-                0
-            );
         }
     }
 }

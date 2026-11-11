@@ -110,7 +110,12 @@ fn native_menu_shows_selected_activation_and_only_requested_actions() {
                 GetMenuState(menu, 43, MF_BYCOMMAND) & MF_CHECKED != 0,
                 snapshot.startup
             );
-            for removed in ["Start / stop dictation", "Cancel", "Paste last transcript"] {
+            for removed in [
+                "Start / stop dictation",
+                "Cancel",
+                "Paste last transcript",
+                "Reload settings from file",
+            ] {
                 assert!(!labels.iter().any(|label| label == removed));
             }
             let modes = GetSubMenu(menu, 2);
@@ -128,6 +133,28 @@ fn native_menu_shows_selected_activation_and_only_requested_actions() {
             }
             DestroyMenu(menu);
         }
+    }
+}
+
+#[test]
+fn consecutive_native_notifications_keep_only_the_latest_without_quitting() {
+    unsafe {
+        let window = create_window("Whispertype.Test.NotificationQueue", 0, 0, 0, 0, 0, 0).unwrap();
+        queue_notification(window, "First result".into());
+        queue_notification(window, "Second result".into());
+        assert_eq!(
+            PENDING_NOTIFICATION.with(|pending| pending.borrow().clone()),
+            Some("Second result".into())
+        );
+        SendMessageW(window, WM_TIMER, NOTIFICATION_TIMER, 0);
+        assert!(PENDING_NOTIFICATION.with(|pending| pending.borrow().is_none()));
+        let mut message: MSG = zeroed();
+        assert_eq!(
+            PeekMessageW(&mut message, null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE),
+            0
+        );
+        DestroyWindow(window);
+        PeekMessageW(&mut message, null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE);
     }
 }
 

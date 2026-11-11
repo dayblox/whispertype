@@ -63,6 +63,8 @@ pub struct Config {
     pub wake_enabled: bool,
     pub wake_threshold: f32,
     pub wake_phrase: String,
+    // Accepted only for compatibility with old configuration files; never used.
+    #[serde(skip_serializing)]
     pub protect_focus: bool,
 }
 impl Default for Config {
@@ -82,7 +84,7 @@ impl Default for Config {
             wake_enabled: false,
             wake_threshold: 0.65,
             wake_phrase: "Personal phrase".into(),
-            protect_focus: true,
+            protect_focus: false,
         }
     }
 }

@@ -11,7 +11,7 @@ Native Rust voice typing for **Windows 10/11 x64** and **Linux / Hyprland on Way
 - **Check for updates** checks the latest stable GitHub release on demand and opens its download page if a newer version is available. Otherwise it reports that the app is up to date. No background update polling or automatic installation runs.
 - **Launch at startup** is a checkbox reflecting your current sign-in registration. Ticking it enables automatic launch for your user account; unticking it leaves the current session running. Windows uses the current user's Run entry, and Linux uses a systemd user service. No administrator rights are needed.
 
-Dictation is uploaded after you stop; this is not streaming transcription. Results are typed into the foreground application using Unicode input, without changing the clipboard. If the focused window changed during recording/transcription, the text is retained for manual insertion using the `whispertype paste` command. Focus protection checks windows, not individual fields within a window. Start/stop, Cancel, and Paste are omitted from the tray menu; dictation uses your shortcut or a left-click on the tray icon. Their CLI commands remain available for automation and recovery.
+Dictation is uploaded after you stop; this is not streaming transcription. Completed text is sent as Unicode keystrokes to whatever is active when transcription finishes, without changing the clipboard. Whispertype does not inspect input fields, remember the original window, or require a focused text field. Both left- and right-clicking the tray icon open its menu; use the shortcut for dictation. Start/stop, Cancel, and Paste remain available as CLI commands for automation and recovery.
 
 ## Windows
 
@@ -86,7 +86,9 @@ For foreground troubleshooting: `systemctl --user stop whispertype; whispertype 
 
 Wake listening starts **off on every launch**, including upgrades from profiles that previously saved it as enabled. Enabling it is an explicit action for the current session. If no personal model exists, selecting wake listening opens phrase setup instead of opening the microphone for background listening. There is no synthetic fallback or restore-default phrase option.
 
-Choose **Record personal wake phrase...**. On Windows a single small panel shows the current step, countdown, speech capture, and saved sample count. Click **Record sample 1 / 3**, wait for **Say your phrase now**, speak a short distinctive phrase, then stay quiet. The sample finishes after 0.7 seconds of silence. Click Record for each of the remaining samples at your own pace. Quiet, short, or overlong samples can be retried individually. Cancel closes setup and preserves an existing model. The microphone is closed between samples. After three samples the model is saved locally; wake listening remains off until you explicitly enable it from the tray.
+Choose **Record personal wake phrase...**. On Windows a single small panel shows the current step, countdown, speech capture, and saved sample count. Click **Record sample 1 / 3**, wait for **Say your phrase now**, speak a short distinctive phrase, then stay quiet. The sample finishes after 0.7 seconds of silence. Click Record for each of the remaining samples at your own pace. Quiet, short, or overlong samples can be retried individually. Cancel closes setup and preserves an existing model. The microphone is closed between samples. After saving, choose **Enable listening**, **Test phrase**, or **Close**. Closing leaves listening off.
+
+**Test personal wake phrase...** runs recognition locally with a countdown and an eight-second attempt. It reports whether your saved model recognized the phrase, closes the microphone afterward, and never submits test audio to Groq or starts dictation. Retry or re-record if needed. Testing leaves wake listening off; choose **Enable listening** when ready.
 
 On Linux the **Personal phrase setup** submenu provides the same Record/Cancel steps and live status, with replacing desktop notifications. All enrollment audio stays local. Use your normal voice, actual microphone, and typical speaking distance. A two- or three-syllable phrase is a sensible starting point; you can personally record "Hey Groq" if you like. Personal enrollment is required, but detection accuracy still depends on your voice, microphone and noise. Test it in your environment. Untrusted playback can cause false activations.
 
@@ -105,9 +107,9 @@ Wake listening uses Rustpotter MFCC/DTW matching, with a quiet-input gate, 240 m
 
 **Transcription prompt...** opens a small editor. Enter concise vocabulary, names, spelling or context hints in the language you dictate; this is not a chat/system instruction. Save applies the value immediately to future uploads and stores it in `config.toml`. Clear the field and Save to disable it. The app bounds it to 1024 UTF-8 bytes; Groq documents a 224-token prompt limit. See [Groq prompting guidance](https://console.groq.com/docs/speech-to-text). Linux uses `zenity` for this optional editor.
 
-Windows feedback uses one non-activating app-owned card: each message replaces the previous one immediately. Checking-for-updates stays visible until the result; completed messages close after four seconds (or a click). It does not queue Windows balloons or wait for notification-center timeouts. Enrollment progress has its own persistent panel. Linux replaces its previous notification by ID with a four-second requested expiry.
+Simple Windows feedback uses the standard Windows notification appearance. A newer message dismisses the preceding Whispertype notification; bursts within 200 ms are coalesced to the latest message rather than queued. Windows controls notification duration and quiet-mode behavior. Update checks run silently and show only their result. Phrase setup/testing and prompt editing use compact dark native forms with Segoe UI text and clear buttons. Linux replaces its previous notification by ID with a four-second requested expiry.
 
-**Reload settings from file** (formerly Reload configuration) rereads `config.toml`, reapplies the shortcut/mode, microphone and other settings, and refreshes the startup checkbox. Use it after manually editing the file. Prompt-editor and tray changes already apply immediately. Reload is refused during recording, transcription or phrase setup, so it does not discard current work. Reload never automatically enables wake listening.
+There is no Reload menu entry and no background configuration watcher or polling. Tray and prompt-editor changes apply immediately. After manual `config.toml` edits, restart Whispertype or run `whispertype reload`. The CLI reload refuses active dictation/setup and never automatically enables wake listening. Legacy `protect_focus` settings are accepted for upgrades but ignored and removed on the next save.
 
 ## Groq and free-tier limits
 
@@ -136,13 +138,12 @@ indicator = true
 wake_enabled = false            # wake starts off each launch; enable from tray
 wake_threshold = 0.65            # higher reduces false activations
 wake_phrase = "Personal phrase"         # label; enroll to change the actual acoustic phrase
-protect_focus = true
 prompt = ""                      # short vocabulary/context hints
 # language = "en"                # omit for automatic language detection
 # microphone = "USB"             # substring of input device name
 ```
 
-Commands: `run`, `init`, `press`, `release`, `start`, `stop`, `toggle`, `cancel`, `wake-on`, `wake-off`, `enroll`, `paste`, `reload`, `check-updates`, `startup-toggle`, `prompt-edit`, `enroll-next`, `enroll-cancel`, `quit`, `set-key`, `config`, `train`, `transcribe FILE.wav`. On Windows the GUI-subsystem executable writes CLI output only when handles are redirected. `init` registers sign-in startup on Windows; the installer script additionally starts it immediately.
+Commands: `run`, `init`, `press`, `release`, `start`, `stop`, `toggle`, `cancel`, `wake-on`, `wake-off`, `enroll`, `wake-test`, `paste`, `reload`, `check-updates`, `startup-toggle`, `prompt-edit`, `enroll-next`, `enroll-cancel`, `quit`, `set-key`, `config`, `train`, `transcribe FILE.wav`. On Windows the GUI-subsystem executable writes CLI output only when handles are redirected. `init` registers sign-in startup on Windows; the installer script additionally starts it immediately.
 
 ## Resource design and checks
 

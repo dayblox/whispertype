@@ -6,6 +6,7 @@ use std::{
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct View {
+    pub title: String,
     pub text: String,
     pub action: String,
     pub done: bool,
@@ -22,6 +23,7 @@ pub enum Outcome {
     Retry,
     Saved,
     Complete,
+    TestFinished,
 }
 
 pub struct Enrollment {
@@ -34,12 +36,13 @@ pub struct Enrollment {
     silence: usize,
     voiced_samples: usize,
     hint: String,
+    testing: bool,
 }
 impl Enrollment {
     pub fn new() -> Self {
         Self { samples: HashMap::new(), phase: Phase::Ready, current: Vec::new(),
             pre_roll: [[0; FRAME]; 8], next: 0, buffered: 0, silence: 0,
-            voiced_samples: 0, hint: "Choose a short, distinctive phrase. Record it three times in your normal voice. Audio stays on this device.".into() }
+            voiced_samples: 0, testing: false, hint: "Choose a short, distinctive phrase. Record it three times in your normal voice. Audio stays on this device.".into() }
     }
     pub fn active(&self) -> bool {
         matches!(self.phase, Phase::Countdown(_) | Phase::Listening(_))
@@ -59,17 +62,34 @@ impl Enrollment {
         self.voiced_samples = 0;
     }
     pub fn finish(&mut self, message: String) {
+        self.testing = false;
         self.phase = Phase::Done(message);
+    }
+    pub fn arm_test(&mut self, now: Instant) {
+        self.phase = Phase::Ready;
+        self.arm(now);
+        self.testing = true;
+    }
+    pub fn testing(&self) -> bool {
+        self.testing
+    }
+    pub fn test_listening(&self) -> bool {
+        self.testing && matches!(self.phase, Phase::Listening(_))
     }
     pub fn view(&self, now: Instant) -> View {
         let n = self.samples.len() + 1;
+        let label = if self.testing {
+            "Test your phrase".into()
+        } else {
+            format!("Sample {n} of 3")
+        };
         let text = match &self.phase {
             Phase::Ready => format!(
                 "{}\n\nSample {n} of 3. Click Record when you are ready.",
                 self.hint
             ),
             Phase::Countdown(until) => format!(
-                "Sample {n} of 3 — get ready… {}",
+                "{label} — get ready… {}",
                 until
                     .saturating_duration_since(now)
                     .as_millis()
@@ -77,7 +97,14 @@ impl Enrollment {
                     .max(1)
             ),
             Phase::Listening(_) if self.voiced_samples == 0 => {
-                format!("Sample {n} of 3 — say your phrase now.")
+                format!(
+                    "{label} — say your phrase now.{}",
+                    if self.testing {
+                        " This only tests recognition; nothing is sent to Groq."
+                    } else {
+                        ""
+                    }
+                )
             }
             Phase::Listening(_) => {
                 format!("Sample {n} of 3 — recording. Finish the phrase, then stay quiet.")
@@ -85,11 +112,29 @@ impl Enrollment {
             Phase::Done(text) => text.clone(),
         };
         View {
-            text,
-            action: if self.done() {
-                "Done".into()
+            title: match &self.phase {
+                Phase::Ready => "Record your personal phrase".into(),
+                Phase::Countdown(_) => "Get ready".into(),
+                Phase::Listening(_) => label,
+                Phase::Done(text) => text
+                    .split_once(". ")
+                    .map_or(text.as_str(), |(title, _)| title)
+                    .into(),
+            },
+            text: if self.done() {
+                text.split_once(". ")
+                    .map_or(text.clone(), |(_, body)| body.into())
             } else {
-                format!("Record sample {n} / 3")
+                text
+            },
+            action: if self.done() {
+                "Enable listening".into()
+            } else {
+                if self.testing {
+                    "Testing phrase…".into()
+                } else {
+                    format!("Record sample {n} / 3")
+                }
             },
             done: self.done(),
             enabled: !self.active(),
@@ -179,6 +224,10 @@ impl Enrollment {
             }
         }
         if let Phase::Listening(started) = self.phase {
+            if self.testing && now.duration_since(started) >= Duration::from_secs(8) {
+                self.finish("No match this time. Repeat your phrase naturally at the same distance as your recordings. Try again, or re-record if it keeps failing.".into());
+                return Some(Outcome::TestFinished);
+            }
             if self.voiced_samples == 0 && now.duration_since(started) >= Duration::from_secs(10) {
                 return Some(self.retry(
                     "No speech detected. Check your microphone and try this sample again.",
@@ -192,6 +241,29 @@ impl Enrollment {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn phrase_test_counts_down_expires_and_can_be_retried_without_samples() {
+        let now = Instant::now();
+        let mut e = Enrollment::new();
+        e.finish("Your personal phrase is saved. Test it before enabling.".into());
+        assert_eq!(e.view(now).action, "Enable listening");
+        e.arm_test(now);
+        assert!(e.active() && e.testing());
+        assert!(!e.test_listening());
+        e.tick(now + Duration::from_secs(2));
+        assert!(e.test_listening());
+        assert!(matches!(
+            e.tick(now + Duration::from_secs(10)),
+            Some(Outcome::TestFinished)
+        ));
+        assert!(e.done() && !e.testing() && !e.active());
+        assert!(e.samples.is_empty());
+        assert_eq!(e.view(now).title, "No match this time");
+        e.arm_test(now);
+        e.finish("Phrase recognized. Enable listening when ready.".into());
+        assert!(e.done() && !e.active());
+        assert_eq!(e.view(now).title, "Phrase recognized");
+    }
     #[test]
     fn short_and_long_samples_retry_and_countdown_advances_without_audio() {
         let now = Instant::now();

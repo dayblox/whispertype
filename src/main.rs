@@ -27,6 +27,10 @@ fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let paths = config::Paths::new()?;
     match args.first().map(String::as_str).unwrap_or("run") {
+        #[cfg(windows)]
+        "_stop-for-upgrade" => platform::stop_for_upgrade(std::path::Path::new(
+            args.get(1).context("Missing installed executable path")?,
+        )),
         "run" => engine::run(paths),
         "_worker" => {
             let result = groq::worker(&paths);

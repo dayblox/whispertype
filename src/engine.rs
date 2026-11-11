@@ -63,6 +63,7 @@ pub fn valid_command(s: &str) -> bool {
             | "enroll-next"
             | "enroll-cancel"
             | "prompt-edit"
+            | "wake-test"
             | "quit"
     )
 }
@@ -73,12 +74,10 @@ struct Recording {
     silence: usize,
     voiced: bool,
     wake: bool,
-    focus: Option<String>,
 }
 struct Job {
     child: Child,
     id: u64,
-    focus: Option<String>,
 }
 
 struct Engine {
@@ -98,6 +97,7 @@ struct Engine {
     startup: bool,
     startup_changing: bool,
     enrollment_view: Option<crate::enrollment::View>,
+    test_detector: Option<Box<wake::Detector>>,
 }
 
 pub fn run(paths: Paths) -> Result<()> {
@@ -135,6 +135,7 @@ pub fn run(paths: Paths) -> Result<()> {
         startup,
         startup_changing: false,
         enrollment_view: None,
+        test_detector: None,
     };
     app.refresh();
     loop {
@@ -257,6 +258,7 @@ impl Engine {
     fn release_capture(&mut self) {
         self.capture = None;
         self.detector = None;
+        self.test_detector = None;
     }
     fn resume(&mut self) -> Result<()> {
         if self.wake {
@@ -303,13 +305,6 @@ impl Engine {
             std::env::var_os("GROQ_API_KEY").is_some() || self.paths.key.exists(),
             "Add your Groq API key first (whispertype set-key)"
         );
-        let focus = platform::focused_window();
-        if self.config.protect_focus {
-            ensure!(
-                focus.is_some(),
-                "Cannot identify the focused window; check desktop integration"
-            );
-        }
         self.ensure_capture()?;
         self.recording = Some(Recording {
             samples: Vec::with_capacity(RATE * 2),
@@ -317,7 +312,6 @@ impl Engine {
             silence: 0,
             voiced: false,
             wake,
-            focus,
         });
         self.refresh();
         Ok(())
@@ -331,7 +325,7 @@ impl Engine {
         let Some(range) = audio::speech_range(&recording.samples, self.config.speech_rms) else {
             return self.resume();
         };
-        let Recording { samples, focus, .. } = recording;
+        let Recording { samples, .. } = recording;
         let mut child = platform::spawn_hidden(
             Command::new(std::env::current_exe()?)
                 .arg("_worker")
@@ -373,7 +367,7 @@ impl Engine {
             });
             let _ = sender.send(Event::Result(id, result));
         });
-        self.job = Some(Job { child, id, focus });
+        self.job = Some(Job { child, id });
         self.refresh();
         Ok(())
     }
@@ -387,17 +381,14 @@ impl Engine {
             self.error(&err);
         } else if !result.text.is_empty() {
             config::private_write(&self.paths.pending, result.text.as_bytes())?;
-            if self.config.protect_focus && job.focus != platform::focused_window() {
-                self.error(
-                    "Focus changed. Text retained locally; use whispertype paste to insert it.",
-                );
-            } else if let Err(e) = platform::type_text(&result.text) {
+            if let Err(e) = platform::type_text(&result.text) {
                 self.error(&format!("Text retained locally. Insertion failed: {e:#}"));
             }
         }
         self.resume()
     }
     fn cancel(&mut self) {
+        self.test_detector = None;
         self.recording = None;
         self.enrollment = None;
         self.activation.reset();
@@ -480,8 +471,7 @@ impl Engine {
             }
             "enroll-next" => {
                 if self.enrollment.as_ref().is_some_and(Enrollment::done) {
-                    self.enrollment = None;
-                    return self.resume();
+                    return self.set_wake(true);
                 }
                 if self.enrollment.is_some() {
                     self.ensure_capture()?;
@@ -491,8 +481,27 @@ impl Engine {
                 return Ok(());
             }
             "enroll-cancel" => {
+                self.test_detector = None;
                 self.enrollment = None;
                 self.release_capture();
+                self.refresh();
+                return Ok(());
+            }
+            "wake-test" => {
+                if self.recording.is_some() || self.job.is_some() {
+                    return Ok(());
+                }
+                if self.enrollment.as_ref().is_some_and(|e| !e.done()) {
+                    platform::notify("Finish recording your personal phrase before testing it.");
+                    return Ok(());
+                }
+                let detector = wake::detector(&self.config, &self.paths)?;
+                self.wake = false;
+                self.release_capture();
+                self.test_detector = Some(Box::new(detector));
+                let enrollment = self.enrollment.get_or_insert_with(Enrollment::new);
+                enrollment.arm_test(Instant::now());
+                self.ensure_capture()?;
                 self.refresh();
                 return Ok(());
             }
@@ -640,9 +649,25 @@ impl Engine {
         let now = Instant::now();
         let e = self.enrollment.as_mut().unwrap();
         let before = self.enrollment_view.clone();
-        let outcome = e.audio(samples, now, self.config.speech_rms);
+        let outcome = if e.testing() {
+            let outcome = e.tick(now);
+            if e.test_listening()
+                && self
+                    .test_detector
+                    .as_mut()
+                    .is_some_and(|d| d.process(samples))
+            {
+                e.finish("Phrase recognized. Your microphone and saved phrase work together. Enable listening when you are ready.".into());
+                Some(Outcome::TestFinished)
+            } else {
+                outcome
+            }
+        } else {
+            e.audio(samples, now, self.config.speech_rms)
+        };
         let changed = before.as_ref() != Some(&e.view(now));
         if outcome.is_some() {
+            self.test_detector = None;
             self.release_capture();
         }
         if matches!(outcome, Some(Outcome::Complete)) {
@@ -652,7 +677,7 @@ impl Engine {
                 Ok(()) => {
                     self.config.wake_phrase = "Personal phrase".into();
                     self.config.save(&self.paths)?;
-                    "Personal phrase saved. Wake listening is still off. Close this panel, then enable it from the tray when you want to use it.".to_string()
+                    "Your personal phrase is saved. Test it with your microphone, or enable wake listening now. Listening starts off each time you launch Whispertype.".to_string()
                 }
                 Err(error) => {
                     format!("Could not save the phrase: {error:#}. Close this panel and try again.")

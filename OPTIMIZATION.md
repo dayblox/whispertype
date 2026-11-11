@@ -1,10 +1,17 @@
 # Optimization pass — November 11, 2026
 
-This pass keeps the tray, automatic tap/hold, optional wake phrase, focus
-protection, and recording indicator. It optimizes actual processing and data
+This pass keeps the tray, automatic tap/hold, optional wake phrase,
+and recording indicator. It optimizes actual processing and data
 ownership instead of shrinking the working set artificially or removing
 features. No memory-trimming calls, constant GC/cleanup timers, or forced
 working-set eviction are used.
+
+v0.1.3 removes foreground-window capture/checks and the redundant detector
+VAD after the existing energy gate. No configuration watcher or file polling
+was added. Windows notification bursts use a single 200 ms one-shot timer,
+which stops after the newest message is delivered. The styled native forms
+allocate their fonts/brush only when a form is opened; no UI framework or
+notification process is added to the idle app.
 
 ## Implemented
 

@@ -189,9 +189,7 @@ impl ksni::Tray for Tray {
         }
         .into()
     }
-    fn activate(&mut self, _x: i32, _y: i32) {
-        let _ = self.sender.try_send(Event::Command("toggle".into()));
-    }
+    const MENU_ON_ACTIVATE: bool = true;
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         let modes = [Mode::Auto, Mode::Hold, Mode::Toggle];
         let mut items = vec![
@@ -255,8 +253,8 @@ impl ksni::Tray for Tray {
             }
             .into(),
             self.item("Record personal wake phrase…", "enroll"),
+            self.item("Test personal wake phrase…", "wake-test"),
             ksni::MenuItem::Separator,
-            self.item("Reload settings from file", "reload"),
             self.item("Transcription prompt…", "prompt-edit"),
             CheckmarkItem {
                 label: "Launch at startup".into(),
@@ -283,7 +281,7 @@ impl ksni::Tray for Tray {
                     label: "Personal phrase setup".into(),
                     submenu: vec![
                         StandardItem {
-                            label: view.text.replace('\n', " "),
+                            label: format!("{}: {}", view.title, view.text.replace('\n', " ")),
                             enabled: false,
                             ..Default::default()
                         }
@@ -310,8 +308,8 @@ impl ksni::Tray for Tray {
 pub fn notify(message: &str) {
     feedback(message, "4000");
 }
-pub fn progress(message: &str) {
-    feedback(message, "15000");
+pub fn update_notification(message: &str) {
+    notify(message);
 }
 fn feedback(message: &str, expiry: &str) {
     static ID: std::sync::Mutex<u32> = std::sync::Mutex::new(0);
@@ -381,13 +379,6 @@ fn hypr(command: &str) -> Result<String> {
     let mut data = String::new();
     stream.take(65536).read_to_string(&mut data)?;
     Ok(data)
-}
-pub fn focused_window() -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(&hypr("j/activewindow").ok()?).ok()?;
-    v["address"]
-        .as_str()
-        .filter(|s| *s != "0x")
-        .map(str::to_owned)
 }
 pub fn type_text(text: &str) -> Result<()> {
     let mut child = Command::new("wtype")
