@@ -54,6 +54,7 @@ pub fn valid_command(s: &str) -> bool {
             | "enroll"
             | "paste"
             | "reload"
+            | "check-updates"
             | "quit"
     )
 }
@@ -333,7 +334,9 @@ impl Engine {
         } else if !result.text.is_empty() {
             config::private_write(&self.paths.pending, result.text.as_bytes())?;
             if self.config.protect_focus && job.focus != platform::focused_window() {
-                self.error("Focus changed. Text retained locally; select Paste last transcript from the tray.");
+                self.error(
+                    "Focus changed. Text retained locally; use whispertype paste to insert it.",
+                );
             } else if let Err(e) = platform::type_text(&result.text) {
                 self.error(&format!("Text retained locally. Insertion failed: {e:#}"));
             }
@@ -397,6 +400,7 @@ impl Engine {
             }
             "wake-on" => return self.set_wake(true),
             "wake-off" => return self.set_wake(false),
+            "check-updates" => return crate::updates::start(),
             "paste" => {
                 return platform::type_text(
                     &std::fs::read_to_string(&self.paths.pending)
@@ -416,7 +420,7 @@ impl Engine {
                     silence: 0,
                     voiced: false,
                 });
-                platform::notify("After two seconds, say your wake phrase. Repeat it three times, pausing two seconds between repetitions. Use Cancel in the tray to abort.");
+                platform::notify("After two seconds, say your wake phrase. Repeat it three times, pausing two seconds between repetitions. Quit Whispertype to abort.");
                 self.refresh();
                 return Ok(());
             }

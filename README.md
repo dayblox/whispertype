@@ -1,15 +1,16 @@
 # Whispertype
 
-Native Rust voice typing for **Windows 10/11 x64** and **Linux / Hyprland on Wayland**. No application window, browser engine, or local Whisper model. A tray menu handles settings; a small, static waveform capsule appears while recording or transcribing.
+Native Rust voice typing for **Windows 10/11 x64** and **Linux / Hyprland on Wayland**. No application window, browser engine, or local Whisper model. A tray menu handles settings; a small, static waveform capsule appears centered against the bottom screen edge while recording or transcribing. The indicator is 64x24 logical pixels (128x48 backing pixels), with no bottom gap or transparent padding.
 
 **Ctrl+Space** is the default:
 
 - Tap and release within 250 ms to start hands-free recording; tap again to submit.
 - Hold longer than 250 ms, then release to submit.
 - Change the shortcut through **right-click tray → Shortcut → Record shortcut…**, or choose a preset. Supported keys: Space, letters, digits, F1–F24, plus Ctrl/Alt/Shift/Win.
-- Choose Automatic, Hold, or Toggle explicitly from the same menu.
+- Choose Automatic, Hold, or Toggle explicitly from the same menu. The top-level entry shows the current selection, for example **Activation: Hold to talk**.
+- **Check for updates** checks the latest stable GitHub release on demand and opens its download page if a newer version is available. Otherwise it reports that the app is up to date. No background update polling or automatic installation runs.
 
-Dictation is uploaded after you stop; this is not streaming transcription. Results are typed into the foreground application using Unicode input, without changing the clipboard. If the focused window changed during recording/transcription, the text is retained for manual insertion using **Paste last transcript**. Focus protection checks windows, not individual fields within a window.
+Dictation is uploaded after you stop; this is not streaming transcription. Results are typed into the foreground application using Unicode input, without changing the clipboard. If the focused window changed during recording/transcription, the text is retained for manual insertion using the `whispertype paste` command. Focus protection checks windows, not individual fields within a window. Start/stop, Cancel, and Paste are omitted from the tray menu; dictation uses your shortcut or a left-click on the tray icon. Their CLI commands remain available for automation and recovery.
 
 ## Windows
 
@@ -84,7 +85,7 @@ For foreground troubleshooting: `systemctl --user stop whispertype; whispertype 
 
 Wake-word listening is **off by default**. Enable it from the tray. Say **“Hey Groq”**, wait for the green capsule, then dictate. A 1.5-second pause submits the utterance. Audio before activation stays local and is not uploaded. Wake listening pauses during upload and resumes afterward.
 
-The included small acoustic reference model is generated from synthesized voices. It is experimental and needs microphone testing with your accent and environment. For a useful personal model, choose **Record personal wake phrase…** and say the same short phrase three times, with two-second gaps. Enrollment is local and replaces the default acoustic model; the phrase can be anything, including another language. Cancel from the tray if needed. A cheap energy gate skips recognition during sustained quiet, with 240 ms of pre-roll and approximately two seconds of hangover. It uses half of `speech_rms` as its threshold; lower that setting if your voice is too quiet to activate it. Keep wake mode off in environments with untrusted playback: false activation can record and upload speech.
+The included small acoustic reference model is generated from synthesized voices. It is experimental and needs microphone testing with your accent and environment. For a useful personal model, choose **Record personal wake phrase…** and say the same short phrase three times, with two-second gaps. Enrollment is local and replaces the default acoustic model; the phrase can be anything, including another language. Quit Whispertype or use `whispertype cancel` to abort. A cheap energy gate skips recognition during sustained quiet, with 240 ms of pre-roll and approximately two seconds of hangover. It uses half of `speech_rms` as its threshold; lower that setting if your voice is too quiet to activate it. Keep wake mode off in environments with untrusted playback: false activation can record and upload speech.
 
 Advanced enrollment from three to eight **mono, 16 kHz, PCM16 WAV** files:
 
@@ -128,7 +129,7 @@ prompt = ""                      # short vocabulary/context hints
 # microphone = "USB"             # substring of input device name
 ```
 
-Commands: `run`, `init`, `press`, `release`, `start`, `stop`, `toggle`, `cancel`, `wake-on`, `wake-off`, `enroll`, `paste`, `reload`, `quit`, `set-key`, `config`, `train`, `transcribe FILE.wav`. On Windows the GUI-subsystem executable writes CLI output only when handles are redirected. `init` registers sign-in startup on Windows; the installer script additionally starts it immediately.
+Commands: `run`, `init`, `press`, `release`, `start`, `stop`, `toggle`, `cancel`, `wake-on`, `wake-off`, `enroll`, `paste`, `reload`, `check-updates`, `quit`, `set-key`, `config`, `train`, `transcribe FILE.wav`. On Windows the GUI-subsystem executable writes CLI output only when handles are redirected. `init` registers sign-in startup on Windows; the installer script additionally starts it immediately.
 
 ## Resource design and checks
 

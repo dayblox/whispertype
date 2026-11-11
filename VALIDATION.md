@@ -7,13 +7,23 @@ not supplied during development.
 
 ## Completed checks
 
-- Native Windows x64 MSVC: **14 functional tests pass**, with three explicit
+- Native Windows x64 MSVC: **18 functional tests pass**, with three explicit
   opt-in tests (offline benchmark, interactive desktop, physical microphone).
   Packaging tests cover Windows/Linux archives, standalone outputs, repeat
   runs, checksums, and missing inputs. On Linux, a fake app verifies the
   self-extracting installer installs its payload and invokes `init` without
   compiling or touching the real desktop. Release tests reject corrupt or
   incomplete platform payloads before publishing.
+- v0.1.1: native menus checked in all three activation modes; selected mode
+  appears in the root submenu label, Check for updates is present, and the
+  removed actions are absent. Desktop smoke tests verify the smaller indicator
+  ends at the monitor's full bottom edge, including above the taskbar, while
+  retaining focus. Pixel tests verify no transparent bottom-center gap.
+- Manual update checks compare semantic versions against the latest stable
+  GitHub release; mock HTTP checks cover newer/equal/older versions, excluded
+  prereleases/drafts, malformed/oversized replies, missing releases and rate
+  limits. The network/TLS work runs in a short-lived helper with no idle poll.
+  A live, unauthenticated GitHub API check also completed successfully.
 - Opt-in Windows microphone check: default device opened at **48 kHz stereo**,
   passed through FFT resampling, delivered **100 PCM frames in three seconds**,
   closed cleanly, and reported no queue overflow. No audio saved/uploaded.
@@ -23,12 +33,12 @@ not supplied during development.
   enrollment and removal at idle; focus retained during indicator updates;
   hook press/repeat/release handling using unflagged hook structures; IPC
   delivery and clean window shutdown. This is not a physical-keyboard trial.
-- Windows release EXE: GUI subsystem, x64, **3,609,088 bytes**, system-only DLL
+- Windows v0.1.0 release EXE: GUI subsystem, x64, **3,609,088 bytes**, system-only DLL
   imports, static MSVC runtime. Redirected `--help`, config path, invalid
   command stderr/exit status, and offline worker JSON output pass.
 - Windows `cargo fmt --check` and `cargo clippy --locked --all-targets -- -D warnings` pass.
 
-- `cargo test --locked`: **12 tests pass**; the offline benchmark is excluded
+- Linux v0.1.0 baseline `cargo test --locked`: **12 tests pass**; the offline benchmark is excluded
   from ordinary test runs and passes separately in release mode. Tests cover
   tap/hold and explicit modes, config validation, native PCM preservation,
   resampling/alias rejection, silence trimming, bounded recording capacity,
@@ -107,7 +117,7 @@ Groq upload latency/memory has not been measured.
 
 ## Native Windows resource sample
 
-Windows build 26100, x64 MSVC release, default tray and indicator enabled.
+Windows build 26100, v0.1.0 x64 MSVC release, default tray and indicator enabled.
 Each state has three seconds of warmup and a ten-second sample; no compiler
 or benchmark ran during sampling. Default capture was 48 kHz stereo with
 FFT resampling. CPU is percent of one logical core and excludes Windows audio

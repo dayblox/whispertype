@@ -6,6 +6,7 @@ mod config;
 mod engine;
 mod groq;
 mod platform;
+mod updates;
 mod wake;
 
 use anyhow::{bail, Context, Result};
@@ -40,6 +41,10 @@ fn run() -> Result<()> {
         }
         "_indicator" => platform::indicator(args.get(1).map(String::as_str).unwrap_or("recording")),
         "_capture-shortcut" => platform::capture_shortcut(),
+        "_check-updates" => {
+            serde_json::to_writer(std::io::stdout(), &updates::check())?;
+            Ok(())
+        }
         "init" => {
             let config = config::Config::load(&paths)?;
             config.save(&paths)?;
@@ -81,7 +86,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         "help" | "--help" | "-h" => {
-            println!("Whispertype — Windows / Linux voice typing\n\nwhispertype init          Install startup and shortcut integration\nwhispertype run           Run tray and dictation service\nwhispertype set-key       Read Groq API key from standard input\nwhispertype transcribe WAV\nwhispertype train NAME SAMPLE1.wav SAMPLE2.wav SAMPLE3.wav\nwhispertype config        Print configuration path\nwhispertype press|release|toggle|start|stop|cancel|wake-on|wake-off|enroll|paste|reload|quit");
+            println!("Whispertype — Windows / Linux voice typing\n\nwhispertype init          Install startup and shortcut integration\nwhispertype run           Run tray and dictation service\nwhispertype set-key       Read Groq API key from standard input\nwhispertype transcribe WAV\nwhispertype train NAME SAMPLE1.wav SAMPLE2.wav SAMPLE3.wav\nwhispertype config        Print configuration path\nwhispertype press|release|toggle|start|stop|cancel|wake-on|wake-off|enroll|paste|reload|check-updates|quit");
             Ok(())
         }
         command if engine::valid_command(command) => platform::send(command),

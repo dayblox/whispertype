@@ -186,10 +186,6 @@ impl ksni::Tray for Tray {
                 ..Default::default()
             }
             .into(),
-            self.item("Start / stop dictation", "toggle"),
-            self.item("Cancel", "cancel"),
-            self.item("Paste last transcript", "paste"),
-            ksni::MenuItem::Separator,
             SubMenu {
                 label: format!("Shortcut: {}", self.snapshot.config.shortcut),
                 submenu: vec![
@@ -203,16 +199,16 @@ impl ksni::Tray for Tray {
             }
             .into(),
             SubMenu {
-                label: "Activation".into(),
+                label: format!("Activation: {}", self.snapshot.config.mode.label()),
                 submenu: vec![RadioGroup {
                     selected: modes
                         .iter()
                         .position(|m| *m == self.snapshot.config.mode)
                         .unwrap_or(0),
-                    options: ["Automatic tap / hold", "Hold to talk", "Tap to toggle"]
+                    options: modes
                         .iter()
                         .map(|s| RadioItem {
-                            label: s.to_string(),
+                            label: s.label().to_string(),
                             ..Default::default()
                         })
                         .collect(),
@@ -247,6 +243,7 @@ impl ksni::Tray for Tray {
             self.item("Restore ‘Hey Groq’ wake phrase", "wake-default"),
             ksni::MenuItem::Separator,
             self.item("Reload configuration", "reload"),
+            self.item("Check for updates", "check-updates"),
             self.item("Quit", "quit"),
         ]
     }
@@ -265,6 +262,17 @@ pub fn notify(message: &str) {
     {
         let _ = child.wait();
     }
+}
+
+pub fn open_releases() -> Result<()> {
+    let status = Command::new("xdg-open")
+        .arg(super::RELEASES_URL)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    ensure!(status.success(), "Could not open the release download page");
+    Ok(())
 }
 
 fn hypr(command: &str) -> Result<String> {

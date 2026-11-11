@@ -31,6 +31,9 @@ struct Overlay {
 }
 
 pub fn run(kind: &str, capture: bool) -> Result<()> {
+    let width = crate::platform::INDICATOR_WIDTH;
+    let height = crate::platform::INDICATOR_HEIGHT;
+    let scale = crate::platform::INDICATOR_SCALE;
     let conn = Connection::connect_to_env()?;
     let (globals, mut queue) = registry_queue_init::<Overlay>(&conn)?;
     let qh = queue.handle();
@@ -40,7 +43,7 @@ pub fn run(kind: &str, capture: bool) -> Result<()> {
         .bind(&qh, 1..=4, ())
         .context("Compositor must support layer-shell for the indicator")?;
     let surface = compositor.create_surface(&qh, ());
-    surface.set_buffer_scale(2);
+    surface.set_buffer_scale(scale as i32);
     let region = compositor.create_region(&qh, ());
     surface.set_input_region(Some(&region));
     region.destroy();
@@ -52,22 +55,30 @@ pub fn run(kind: &str, capture: bool) -> Result<()> {
         &qh,
         (),
     );
-    layer.set_size(88, 36);
+    layer.set_size(width, height);
     layer.set_anchor(Anchor::Bottom);
-    layer.set_margin(0, 0, 48, 0);
+    layer.set_margin(0, 0, 0, 0);
     layer.set_exclusive_zone(-1);
     layer.set_keyboard_interactivity(if capture {
         KeyboardInteractivity::Exclusive
     } else {
         KeyboardInteractivity::None
     });
-    let pixels = crate::platform::pixels(kind, 176, 72);
+    let pixels = crate::platform::pixels(kind, (width * scale) as usize, (height * scale) as usize);
     let fd = unsafe { libc::memfd_create(c"whispertype-indicator".as_ptr(), libc::MFD_CLOEXEC) };
     anyhow::ensure!(fd >= 0, "memfd_create failed");
     let mut file = unsafe { File::from_raw_fd(fd) };
     file.write_all(&pixels)?;
     let pool = shm.create_pool(file.as_fd(), pixels.len() as i32, &qh, ());
-    let buffer = pool.create_buffer(0, 176, 72, 176 * 4, wl_shm::Format::Argb8888, &qh, ());
+    let buffer = pool.create_buffer(
+        0,
+        (width * scale) as i32,
+        (height * scale) as i32,
+        (width * scale * 4) as i32,
+        wl_shm::Format::Argb8888,
+        &qh,
+        (),
+    );
     pool.destroy();
     if capture {
         let seat: wl_seat::WlSeat = globals
@@ -161,7 +172,12 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Overlay {
             zwlr_layer_surface_v1::Event::Configure { serial, .. } => {
                 layer.ack_configure(serial);
                 state.surface.attach(Some(&state.buffer), 0, 0);
-                state.surface.damage_buffer(0, 0, 176, 72);
+                state.surface.damage_buffer(
+                    0,
+                    0,
+                    (crate::platform::INDICATOR_WIDTH * crate::platform::INDICATOR_SCALE) as i32,
+                    (crate::platform::INDICATOR_HEIGHT * crate::platform::INDICATOR_SCALE) as i32,
+                );
                 state.surface.commit();
             }
             zwlr_layer_surface_v1::Event::Closed => state.done = true,

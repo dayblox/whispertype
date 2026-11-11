@@ -10,6 +10,16 @@ pub enum Mode {
     Toggle,
 }
 
+impl Mode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Automatic tap / hold",
+            Self::Hold => "Hold to talk",
+            Self::Toggle => "Tap to toggle",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
     Start,

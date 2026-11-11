@@ -20,16 +20,22 @@ use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     System::LibraryLoader::GetModuleHandleW,
-    UI::{Accessibility::*, Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
+    UI::{Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
 };
 
 const CALLBACK: u32 = WM_APP + 1;
 const UPDATE: u32 = WM_APP + 2;
 const NOTICE: u32 = WM_APP + 3;
 const CONTROL: u32 = WM_APP + 4;
+#[cfg(not(test))]
 const CLASS: &str = "Whispertype.Native.Tray.v1";
+#[cfg(test)]
+const CLASS: &str = "Whispertype.Test.Tray.v1";
+#[cfg(not(test))]
+const INDICATOR_CLASS: &str = "Whispertype.Indicator";
+#[cfg(test)]
+const INDICATOR_CLASS: &str = "Whispertype.Test.Indicator";
 static HWND_VALUE: AtomicIsize = AtomicIsize::new(0);
-static LAST_WINDOW: AtomicIsize = AtomicIsize::new(0);
 static SENDER: OnceLock<SyncSender<Event>> = OnceLock::new();
 static SNAPSHOT: OnceLock<Mutex<Snapshot>> = OnceLock::new();
 static CAPTURE: AtomicBool = AtomicBool::new(false);
@@ -93,16 +99,6 @@ impl Desktop {
                     0,
                 );
                 ensure!(!hook.is_null(), "Could not install global keyboard hook");
-                remember_foreground(GetForegroundWindow());
-                let foreground_hook = SetWinEventHook(
-                    EVENT_SYSTEM_FOREGROUND,
-                    EVENT_SYSTEM_FOREGROUND,
-                    null_mut(),
-                    Some(foreground_event),
-                    0,
-                    0,
-                    WINEVENT_OUTOFCONTEXT,
-                );
                 tray(NIM_ADD);
                 let _ = tx.send(Ok(()));
                 let mut message: MSG = zeroed();
@@ -112,9 +108,6 @@ impl Desktop {
                 }
                 clear_overlay();
                 UnhookWindowsHookEx(hook);
-                if !foreground_hook.is_null() {
-                    UnhookWinEvent(foreground_hook);
-                }
                 tray(NIM_DELETE);
                 Ok(())
             })();
@@ -320,15 +313,10 @@ unsafe fn append(menu: HMENU, id: usize, label: &str, checked: bool) {
         wide(label).as_ptr(),
     );
 }
-unsafe fn menu(window: HWND) {
-    let s = SNAPSHOT.get().unwrap().lock().unwrap().clone();
+unsafe fn create_menu(s: &Snapshot) -> HMENU {
     let root = CreatePopupMenu();
     append(root, 1, &format!("Whispertype · {}", s.state), false);
     EnableMenuItem(root, 1, MF_BYCOMMAND | MF_GRAYED);
-    append(root, 2, "Start / stop dictation", false);
-    append(root, 3, "Cancel", false);
-    append(root, 4, "Paste last transcript", false);
-    AppendMenuW(root, MF_SEPARATOR, 0, null());
     let shortcuts = CreatePopupMenu();
     append(shortcuts, 10, "Record shortcut…", false);
     for (i, key) in [
@@ -349,23 +337,22 @@ unsafe fn menu(window: HWND) {
         wide(&format!("Shortcut: {}", s.config.shortcut)).as_ptr(),
     );
     let modes = CreatePopupMenu();
-    for (i, label) in ["Automatic tap / hold", "Hold to talk", "Tap to toggle"]
-        .iter()
-        .enumerate()
+    for (i, mode) in [
+        crate::activation::Mode::Auto,
+        crate::activation::Mode::Hold,
+        crate::activation::Mode::Toggle,
+    ]
+    .iter()
+    .enumerate()
     {
-        append(
-            modes,
-            20 + i,
-            label,
-            s.config.mode
-                == [
-                    crate::activation::Mode::Auto,
-                    crate::activation::Mode::Hold,
-                    crate::activation::Mode::Toggle,
-                ][i],
-        );
+        append(modes, 20 + i, mode.label(), s.config.mode == *mode);
     }
-    AppendMenuW(root, MF_POPUP, modes as usize, wide("Activation").as_ptr());
+    AppendMenuW(
+        root,
+        MF_POPUP,
+        modes as usize,
+        wide(&format!("Activation: {}", s.config.mode.label())).as_ptr(),
+    );
     append(
         root,
         30,
@@ -376,7 +363,13 @@ unsafe fn menu(window: HWND) {
     append(root, 32, "Restore ‘Hey Groq’ wake phrase", false);
     AppendMenuW(root, MF_SEPARATOR, 0, null());
     append(root, 40, "Reload configuration", false);
+    append(root, 42, "Check for updates", false);
     append(root, 41, "Quit", false);
+    root
+}
+unsafe fn menu(window: HWND) {
+    let s = SNAPSHOT.get().unwrap().lock().unwrap().clone();
+    let root = create_menu(&s);
     let mut point: POINT = zeroed();
     GetCursorPos(&mut point);
     SetForegroundWindow(window);
@@ -392,9 +385,6 @@ unsafe fn menu(window: HWND) {
     DestroyMenu(root);
     PostMessageW(window, WM_NULL, 0, 0);
     let command = match selected {
-        2 => "toggle",
-        3 => "cancel",
-        4 => "paste",
         10 => "shortcut-capture",
         11 => "shortcut:CTRL + SPACE",
         12 => "shortcut:CTRL + ALT + SPACE",
@@ -414,47 +404,10 @@ unsafe fn menu(window: HWND) {
         32 => "wake-default",
         40 => "reload",
         41 => "quit",
+        42 => "check-updates",
         _ => return,
     };
-    if matches!(selected, 2 | 4) {
-        let target = LAST_WINDOW.load(Ordering::Relaxed) as HWND;
-        if !target.is_null() && IsWindow(target) != 0 {
-            SetForegroundWindow(target);
-        }
-    }
     event(command);
-}
-
-unsafe fn remember_foreground(window: HWND) {
-    if window.is_null() || window == hwnd() {
-        return;
-    }
-    let mut class = [0u16; 128];
-    let n = GetClassNameW(window, class.as_mut_ptr(), 128);
-    let class = String::from_utf16_lossy(&class[..n.max(0) as usize]);
-    if ![
-        "Shell_TrayWnd",
-        "Shell_SecondaryTrayWnd",
-        "NotifyIconOverflowWindow",
-        "TopLevelWindowForOverflowXamlIsland",
-        "Progman",
-    ]
-    .contains(&class.as_str())
-        && !class.starts_with("Whispertype.")
-    {
-        LAST_WINDOW.store(window as isize, Ordering::Relaxed);
-    }
-}
-unsafe extern "system" fn foreground_event(
-    _: HWINEVENTHOOK,
-    _: u32,
-    window: HWND,
-    _: i32,
-    _: i32,
-    _: u32,
-    _: u32,
-) {
-    remember_foreground(window);
 }
 
 fn vk(shortcut: &Shortcut) -> u32 {
@@ -539,7 +492,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, w: WPARAM, l: LPARAM) -> LRES
     CallNextHookEx(null_mut(), code, w, l)
 }
 
-const CONTROL_COMMANDS: [&str; 14] = [
+const CONTROL_COMMANDS: [&str; 15] = [
     "press",
     "release",
     "toggle",
@@ -554,6 +507,7 @@ const CONTROL_COMMANDS: [&str; 14] = [
     "quit",
     "wake-default",
     "shortcut-capture",
+    "check-updates",
 ];
 pub fn send(command: &str) -> Result<()> {
     unsafe {
@@ -591,6 +545,23 @@ pub fn focused_window() -> Option<String> {
             Some(format!("{}", w as usize))
         }
     }
+}
+pub fn open_releases() -> Result<()> {
+    unsafe {
+        ensure!(
+            ShellExecuteW(
+                null_mut(),
+                wide("open").as_ptr(),
+                wide(super::RELEASES_URL).as_ptr(),
+                null(),
+                null(),
+                SW_SHOWNORMAL
+            ) as isize
+                > 32,
+            "Could not open the release download page"
+        );
+    }
+    Ok(())
 }
 pub fn type_text(text: &str) -> Result<()> {
     unsafe {
@@ -707,17 +678,20 @@ unsafe fn sync_overlay() -> Result<()> {
     Ok(())
 }
 unsafe fn create_overlay(kind: &str) -> Result<HWND> {
-    let width = 176;
-    let height = 72;
+    let width = (super::INDICATOR_WIDTH * super::INDICATOR_SCALE) as i32;
+    let height = (super::INDICATOR_HEIGHT * super::INDICATOR_SCALE) as i32;
     let foreground = GetForegroundWindow();
     let monitor = MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST);
     let mut info: MONITORINFO = zeroed();
     info.cbSize = size_of::<MONITORINFO>() as u32;
-    GetMonitorInfoW(monitor, &mut info);
-    let x = (info.rcWork.left + info.rcWork.right - width) / 2;
-    let y = info.rcWork.bottom - height - 48;
+    ensure!(
+        GetMonitorInfoW(monitor, &mut info) != 0,
+        "Could not identify the indicator monitor"
+    );
+    let x = (info.rcMonitor.left + info.rcMonitor.right - width) / 2;
+    let y = info.rcMonitor.bottom - height;
     let window = create_window(
-        "Whispertype.Indicator",
+        INDICATOR_CLASS,
         WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
         WS_POPUP,
         x,

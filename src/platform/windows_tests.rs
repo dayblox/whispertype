@@ -2,6 +2,60 @@ use super::*;
 use std::{sync::mpsc, time::Instant};
 
 #[test]
+fn native_menu_shows_selected_activation_and_only_requested_actions() {
+    unsafe {
+        for mode in [
+            crate::activation::Mode::Auto,
+            crate::activation::Mode::Hold,
+            crate::activation::Mode::Toggle,
+        ] {
+            let snapshot = Snapshot {
+                config: Config {
+                    mode,
+                    ..Config::default()
+                },
+                state: "idle".into(),
+                wake: false,
+            };
+            let menu = create_menu(&snapshot);
+            assert!(!menu.is_null());
+            let labels: Vec<String> = (0..GetMenuItemCount(menu))
+                .map(|index| {
+                    let mut buffer = [0u16; 256];
+                    let count = GetMenuStringW(
+                        menu,
+                        index as u32,
+                        buffer.as_mut_ptr(),
+                        buffer.len() as i32,
+                        MF_BYPOSITION,
+                    );
+                    String::from_utf16_lossy(&buffer[..count as usize])
+                })
+                .collect();
+            assert!(labels.contains(&format!("Activation: {}", mode.label())));
+            assert!(labels.contains(&"Check for updates".to_string()));
+            for removed in ["Start / stop dictation", "Cancel", "Paste last transcript"] {
+                assert!(!labels.iter().any(|label| label == removed));
+            }
+            let modes = GetSubMenu(menu, 2);
+            assert_eq!(GetMenuItemCount(modes), 3);
+            for (index, candidate) in [
+                crate::activation::Mode::Auto,
+                crate::activation::Mode::Hold,
+                crate::activation::Mode::Toggle,
+            ]
+            .iter()
+            .enumerate()
+            {
+                let checked = GetMenuState(modes, index as u32, MF_BYPOSITION) & MF_CHECKED != 0;
+                assert_eq!(checked, *candidate == mode);
+            }
+            DestroyMenu(menu);
+        }
+    }
+}
+
+#[test]
 fn shortcut_virtual_keys_and_modifiers() {
     for (name, key, bits) in [
         ("CTRL + SPACE", VK_SPACE as u32, 1),
@@ -137,7 +191,7 @@ fn windows_desktop_smoke() {
             SendMessageW(hwnd(), UPDATE, 0, 0);
             let until = Instant::now() + Duration::from_secs(2);
             let overlay = loop {
-                let overlay = FindWindowW(wide("Whispertype.Indicator").as_ptr(), null());
+                let overlay = FindWindowW(wide(INDICATOR_CLASS).as_ptr(), null());
                 if (!overlay.is_null() == (state != "idle"))
                     && (overlay.is_null() || IsWindowVisible(overlay) != 0)
                     || Instant::now() >= until
@@ -150,6 +204,29 @@ fn windows_desktop_smoke() {
             assert_eq!(!overlay.is_null(), state != "idle");
             if !overlay.is_null() {
                 assert_ne!(IsWindowVisible(overlay), 0);
+                let mut rect: RECT = zeroed();
+                assert_ne!(GetWindowRect(overlay, &mut rect), 0);
+                let mut monitor: MONITORINFO = zeroed();
+                monitor.cbSize = size_of::<MONITORINFO>() as u32;
+                assert_ne!(
+                    GetMonitorInfoW(
+                        MonitorFromWindow(window.0, MONITOR_DEFAULTTONEAREST),
+                        &mut monitor
+                    ),
+                    0
+                );
+                assert_eq!(
+                    rect.bottom, monitor.rcMonitor.bottom,
+                    "Indicator must touch the physical screen edge"
+                );
+                assert_eq!(
+                    rect.right - rect.left,
+                    (super::super::INDICATOR_WIDTH * super::super::INDICATOR_SCALE) as i32
+                );
+                assert_eq!(
+                    rect.bottom - rect.top,
+                    (super::super::INDICATOR_HEIGHT * super::super::INDICATOR_SCALE) as i32
+                );
             }
             assert_eq!(GetForegroundWindow(), window.0, "Indicator stole focus");
         }
