@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""Generate a self-contained chart from the saved optimization results."""
+import json
+import pathlib
+
+root = pathlib.Path(__file__).resolve().parent.parent
+data = json.loads((root / 'benchmarks/results.json').read_text())
+html = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{font-family:var(--font-sans,system-ui);color:var(--foreground,CanvasText);color-scheme:light dark}
+html,body{margin:0;background:transparent}*{box-sizing:border-box}
+.tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+button{font:inherit;font-size:13px;padding:7px 12px;border-radius:var(--radius,6px);border:1px solid var(--border,GrayText);background:transparent;color:inherit;cursor:pointer}
+button[aria-pressed=true]{background:var(--secondary,ButtonFace);font-weight:650}
+.legend{display:flex;gap:18px;color:var(--muted-foreground,GrayText);font-size:12px;margin:10px 0 14px}
+.key{display:inline-block;width:10px;height:10px;margin-right:5px;border-radius:2px}
+.before{background:var(--muted-foreground,GrayText)}.after{background:var(--chart-2,Highlight)}
+.row{margin:0 0 16px}.label{font-size:13px;font-weight:600;margin-bottom:6px}
+.barrow{display:grid;grid-template-columns:minmax(0,1fr) 108px;gap:10px;align-items:center;min-height:18px}
+.track{height:10px;background:var(--secondary,ButtonFace);border-radius:3px;overflow:hidden}
+.bar{height:100%;border-radius:3px}.value{font-size:12px;font-variant-numeric:tabular-nums;text-align:right}
+.note{font-size:12px;line-height:1.5;color:var(--muted-foreground,GrayText);margin-top:6px}
+@media(max-width:420px){.barrow{grid-template-columns:minmax(0,1fr) 94px}.label{font-size:12px}}
+</style></head><body>
+<div class="tabs"><button id="hardware" aria-pressed="true">Linux samples</button><button id="offline" aria-pressed="false">Offline benchmarks</button></div>
+<div class="legend"><span><i class="key before"></i>Before</span><span><i class="key after"></i>Optimized</span></div>
+<div id="rows"></div><div id="note" class="note"></div>
+<script>const data=__DATA__;
+const rows=document.getElementById('rows'), note=document.getElementById('note');
+function draw(mode){
+  rows.replaceChildren();
+  for(const id of ['hardware','offline'])document.getElementById(id).setAttribute('aria-pressed',String(id===mode));
+  let values;
+  if(mode==='hardware'){
+    const a=data.linux.before,b=data.linux.after;
+    values=[
+      ['Recording CPU · % of one core',a.record.cpu_percent_one_core,b.record.cpu_percent_one_core,'%'],
+      ['Quiet wake listening CPU · % of one core',a.wake.cpu_percent_one_core,b.wake.cpu_percent_one_core,'%'],
+      ['Recording memory · app + indicator PSS',a.record.total_pss_kib/1024,b.record.total_pss_kib/1024,'MiB'],
+      ['Idle resident RAM · essentially unchanged',a.idle.rss_kib/1024,b.idle.rss_kib/1024,'MiB']
+    ];
+    note.textContent='Sequential Linux samples: 20 s per active mode, 10 s idle. CPU excludes the external PipeWire service. Small samples are indicative; Windows performance and live Groq uploads remain unmeasured.';
+  }else{
+    const b=data.offline;
+    values=[
+      ['16 kHz conversion · 150 s of audio',b.native_16khz.before_ms,b.native_16khz.after_ms,'ms'],
+      ['48 kHz stereo conversion · 150 s of audio',b.resampled_48khz.before_ms,b.resampled_48khz.after_ms,'ms'],
+      ['Quiet wake processing · 30 s digital silence',b.quiet_wake.before_ms,b.quiet_wake.after_ms,'ms'],
+      ['120 s recording · peak audio buffers only',b.audio_buffers_120s.before_peak_bytes/1e6,b.audio_buffers_120s.after_peak_bytes/1e6,'MB']
+    ];
+    note.textContent='Median of five runs under identical final compiler settings; original algorithms retained in test code. Capture allocations: 500 → 0 per 500 frames, including optimized channel delivery. Audio-buffer peaks exclude OS, driver and TLS memory; digital silence is not every room.';
+  }
+  for(const [label,before,after,unit] of values){
+    const section=document.createElement('div');section.className='row';
+    const title=document.createElement('div');title.className='label';title.textContent=label;section.append(title);
+    const maximum=Math.max(before,after,0.001)*1.05;
+    for(const [name,value] of [['before',before],['after',after]]){
+      const row=document.createElement('div');row.className='barrow';
+      const track=document.createElement('div');track.className='track';
+      const bar=document.createElement('div');bar.className='bar '+name;bar.style.width=(value/maximum*100)+'%';track.append(bar);
+      const number=document.createElement('span');number.className='value';number.textContent=value.toFixed(2)+' '+unit;
+      row.append(track,number);section.append(row);
+    }
+    rows.append(section);
+  }
+}
+for(const id of ['hardware','offline'])document.getElementById(id).addEventListener('click',()=>draw(id));draw('hardware');
+</script></body></html>'''
+(root / 'benchmarks/results.html').write_text(html.replace('__DATA__', json.dumps(data)))

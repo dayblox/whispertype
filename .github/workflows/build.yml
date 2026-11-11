@@ -1,0 +1,33 @@
+name: Build and test
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev
+      - run: cargo fmt --check
+      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo build --release --locked
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist
+          Copy-Item target/release/whispertype.exe,scripts/install-windows.ps1,scripts/uninstall-windows.ps1,README.md,LICENSE,THIRD_PARTY_NOTICES.txt,VALIDATION.md,OPTIMIZATION.md dist
+          Copy-Item benchmarks dist -Recurse
+      - if: runner.os == 'Linux'
+        run: mkdir -p dist && cp target/release/whispertype README.md LICENSE THIRD_PARTY_NOTICES.txt VALIDATION.md OPTIMIZATION.md dist/ && cp -r benchmarks dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whispertype-${{ runner.os }}-x64
+          path: dist/

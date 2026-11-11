@@ -1,0 +1,9 @@
+/target/
+/dist/
+*.key
+.env
+*.wav
+/assets/enrollment/
+__pycache__/
+*.pyc
+
