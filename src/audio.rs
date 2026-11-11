@@ -319,7 +319,6 @@ pub fn is_speech(samples: &[i16], threshold: f32) -> bool {
     energy >= threshold * threshold * 32768.0 * 32768.0 * samples.len() as f32
 }
 
-#[cfg(test)]
 pub fn rms(samples: &[i16]) -> f32 {
     if samples.is_empty() {
         return 0.0;

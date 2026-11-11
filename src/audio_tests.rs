@@ -237,7 +237,10 @@ fn optimization_benchmark() {
     let temp = tempfile::tempdir().unwrap();
     let paths = crate::config::Paths::at(temp.path().to_path_buf()).unwrap();
     std::fs::write(&paths.model, include_bytes!("../assets/hey-groq.rpw")).unwrap();
-    let config = Config::default();
+    let config = Config {
+        wake_threshold: 0.65,
+        ..Config::default()
+    };
     let mut before = crate::wake::reference(&config, &paths).unwrap();
     let mut after = crate::wake::detector(&config, &paths).unwrap();
     let before_ms = timed(|| {

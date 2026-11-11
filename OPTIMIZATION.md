@@ -13,6 +13,11 @@ which stops after the newest message is delivered. The styled native forms
 allocate their fonts/brush only when a form is opened; no UI framework or
 notification process is added to the idle app.
 
+v0.1.4 calculates personal-reference calibration only when loading/training
+a wake model. Normal listening retains the existing energy gate; the extra
+score probe exists only during an explicit eight-second local phrase test.
+There is no periodic microphone sampling or calibration task at idle.
+
 ## Implemented
 
 - Prefer supported **mono 16 kHz** microphone input, with default-format

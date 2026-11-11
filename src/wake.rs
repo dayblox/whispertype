@@ -4,27 +4,174 @@ use crate::{
 };
 use anyhow::{ensure, Context, Result};
 use rustpotter::{
-    Rustpotter, RustpotterConfig, WakewordRef, WakewordRefBuildFromBuffers, WakewordSave,
+    Rustpotter, RustpotterConfig, WakewordLoad, WakewordRef, WakewordRefBuildFromBuffers,
+    WakewordSave,
 };
 use std::{collections::HashMap, path::Path};
+mod calibration;
 
+#[cfg(test)]
 pub(crate) fn reference(config: &Config, paths: &Paths) -> Result<Rustpotter> {
+    reference_mode(config, paths, false).map(|(detector, _)| detector)
+}
+fn reference_mode(config: &Config, paths: &Paths, score_only: bool) -> Result<(Rustpotter, f32)> {
+    let data = std::fs::read(&paths.model)
+        .context("Record a personal wake phrase before enabling wake listening")?;
+    let mut model = WakewordRef::load_from_buffer(&data).map_err(anyhow::Error::msg)?;
+    let target = if config.wake_threshold == 0. {
+        calibration::threshold(&model)?
+    } else {
+        config.wake_threshold
+    };
     let mut settings = RustpotterConfig::default();
     settings.fmt.sample_format = rustpotter::SampleFormat::I16;
     settings.fmt.endianness = rustpotter::Endianness::Native;
-    settings.detector.threshold = config.wake_threshold;
+    settings.detector.threshold = target;
     settings.detector.avg_threshold = 0.2;
     settings.detector.min_scores = 3;
+    settings.detector.eager = true;
     // The outer energy gate already skips quiet audio. A second VAD can reject
     // short phrases after its baseline resets at the beginning of each burst.
     settings.detector.vad_mode = None;
+    if score_only {
+        settings.detector.threshold = 0.;
+        settings.detector.avg_threshold = 0.;
+        settings.detector.min_scores = usize::MAX;
+        settings.detector.eager = false;
+    }
     let mut detector = Rustpotter::new(&settings).map_err(anyhow::Error::msg)?;
-    let data = std::fs::read(&paths.model)
-        .context("Record a personal wake phrase before enabling wake listening")?;
+    // Respect app/manual settings instead of an obsolete threshold embedded
+    // in an older personal reference file. The user's model is never rewritten.
+    model.threshold = None;
+    model.avg_threshold = None;
+    let data = model.save_to_buffer().map_err(anyhow::Error::msg)?;
     detector
         .add_wakeword_from_buffer("wake", &data)
         .map_err(anyhow::Error::msg)?;
-    Ok(detector)
+    Ok((detector, target))
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct ProbeReport {
+    pub frames: usize,
+    pub speech_frames: usize,
+    pub peak_rms: f32,
+    pub best_score: f32,
+    pub target_score: f32,
+    pub partial_frames: usize,
+    pub recognized: bool,
+    pub detections: usize,
+}
+pub struct Probe {
+    detector: Detector,
+    scorer: Rustpotter,
+    report: ProbeReport,
+    gate: f32,
+}
+impl Probe {
+    pub fn new(config: &Config, paths: &Paths) -> Result<Self> {
+        let detector = detector(config, paths)?;
+        let target = detector.match_threshold;
+        Ok(Self {
+            detector,
+            scorer: reference_mode(config, paths, true)?.0,
+            report: ProbeReport {
+                frames: 0,
+                speech_frames: 0,
+                peak_rms: 0.,
+                best_score: 0.,
+                target_score: target,
+                partial_frames: 0,
+                recognized: false,
+                detections: 0,
+            },
+            gate: config.speech_rms * 0.5,
+        })
+    }
+    pub fn report(&self) -> &ProbeReport {
+        &self.report
+    }
+    pub fn process(&mut self, frame: &audio::Frame) -> bool {
+        self.report.frames += 1;
+        self.report.peak_rms = self.report.peak_rms.max(audio::rms(frame));
+        self.report.speech_frames += audio::is_speech(frame, self.gate) as usize;
+        let recognized = self.detector.process(frame);
+        self.report.recognized |= recognized;
+        self.report.detections += recognized as usize;
+        if recognized {
+            self.report.partial_frames = self.report.partial_frames.max(3);
+        }
+        if let Some(partial) = self.detector.inner.get_partial_detection() {
+            self.report.partial_frames = self.report.partial_frames.max(partial.counter);
+        }
+        self.scorer.process_bytes(bytemuck::cast_slice(frame));
+        if let Some(partial) = self.scorer.get_partial_detection() {
+            self.report.best_score = self.report.best_score.max(partial.score);
+        }
+        recognized
+    }
+}
+
+/// Explicit local troubleshooting: save one microphone sample and numeric
+/// diagnostics. This path never initializes the engine, hotkeys or Groq.
+#[cfg(windows)]
+pub fn diagnose(paths: &Paths, report_path: &Path, input: Option<&Path>) -> Result<()> {
+    use crate::engine::Event;
+    use std::{
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+    let config = Config::load(paths)?;
+    let mut probe = Probe::new(&config, paths)?;
+    let mut fixed = Probe::new(
+        &Config {
+            wake_threshold: 0.65,
+            ..config.clone()
+        },
+        paths,
+    )?;
+    let samples = if let Some(input) = input {
+        let mut wav = hound::WavReader::open(input)?;
+        ensure!(
+            wav.spec().channels == 1
+                && wav.spec().sample_rate == audio::RATE as u32
+                && wav.spec().bits_per_sample == 16,
+            "Expected mono 16 kHz PCM16 audio"
+        );
+        wav.samples::<i16>().collect::<Result<Vec<_>, _>>()?
+    } else {
+        if !crate::platform::diagnostic_prompt() {
+            return Ok(());
+        }
+        let (sender, receiver) = mpsc::sync_channel(64);
+        let capture = audio::Capture::start(&config, sender)?;
+        let until = Instant::now() + Duration::from_secs(10);
+        let mut samples = Vec::with_capacity(audio::RATE * 11);
+        while Instant::now() < until {
+            match receiver.recv_timeout(Duration::from_millis(200)) {
+                Ok(Event::Audio(frame)) => samples.extend_from_slice(&frame),
+                Ok(Event::Fault(error)) => anyhow::bail!(error),
+                _ => (),
+            }
+        }
+        drop(capture);
+        crate::config::private_write(&report_path.with_extension("wav"), &audio::wav(&samples)?)?;
+        samples
+    };
+    for frame in samples.as_chunks::<{ audio::FRAME }>().0 {
+        probe.process(frame);
+        fixed.process(frame);
+    }
+    let model =
+        WakewordRef::load_from_file(&paths.model.to_string_lossy()).map_err(anyhow::Error::msg)?;
+    let report = serde_json::json!({ "detection": probe.report(), "fixed_065_comparison": fixed.report(), "model": {
+        "samples": model.samples_features.values().map(Vec::len).collect::<Vec<_>>(),
+        "mfcc_size": model.mfcc_size, "rms": model.rms_level,
+        "embedded_threshold": model.threshold,
+    }});
+    crate::config::private_write(report_path, &serde_json::to_vec_pretty(&report)?)?;
+    println!("{report}");
+    Ok(())
 }
 
 /// Keep a short pre-roll and two seconds of hangover so quiet syllables and
@@ -37,9 +184,10 @@ pub struct Detector {
     hangover: usize,
     active: bool,
     threshold: f32,
+    match_threshold: f32,
 }
 pub fn detector(config: &Config, paths: &Paths) -> Result<Detector> {
-    let inner = reference(config, paths)?;
+    let (inner, match_threshold) = reference_mode(config, paths, false)?;
     ensure!(
         inner.get_samples_per_frame() == audio::FRAME,
         "Unexpected wake detector frame size"
@@ -52,6 +200,7 @@ pub fn detector(config: &Config, paths: &Paths) -> Result<Detector> {
         hangover: 0,
         active: false,
         threshold: config.speech_rms * 0.5,
+        match_threshold,
     })
 }
 impl Detector {
@@ -116,6 +265,7 @@ pub fn train_buffers(name: &str, samples: HashMap<String, Vec<u8>>, target: &Pat
     }
     let model = WakewordRef::new_from_sample_buffers(name.to_string(), None, None, samples, 16)
         .map_err(anyhow::Error::msg)?;
+    calibration::threshold(&model)?;
     crate::config::private_write(target, &model.save_to_buffer().map_err(anyhow::Error::msg)?)
 }
 
@@ -152,13 +302,31 @@ mod tests {
             .0
             .iter()
             .any(|frame| detector.process(frame)));
+        let mut reject = super::detector(&config, &paths).unwrap();
+        let mut negative: Vec<i16> = include_bytes!("../assets/test-negative.pcm")
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|v| i16::from_le_bytes(*v))
+            .collect();
+        negative.extend(vec![0; audio::RATE * 3]);
+        assert!(!negative
+            .as_chunks::<{ audio::FRAME }>()
+            .0
+            .iter()
+            .any(|frame| reject.process(frame)));
     }
     #[test]
     fn quiet_gate_rearms_and_preserves_phrase_after_long_silence() {
         let temp = tempfile::tempdir().unwrap();
         let paths = Paths::at(temp.path().to_path_buf()).unwrap();
         std::fs::write(&paths.model, include_bytes!("../assets/hey-groq.rpw")).unwrap();
-        let mut detector = detector(&Config::default(), &paths).unwrap();
+        // This multi-voice synthetic legacy fixture predates personal calibration.
+        let config = Config {
+            wake_threshold: 0.65,
+            ..Config::default()
+        };
+        let mut detector = detector(&config, &paths).unwrap();
         for _ in 0..1000 {
             assert!(!detector.process(&[0; audio::FRAME]));
         }
@@ -186,7 +354,11 @@ mod tests {
     fn synthetic_fixture_matches_held_out_synthetic_voice_and_rejects_other_speech() {
         let temp = tempfile::tempdir().unwrap();
         let paths = Paths::at(temp.path().to_path_buf()).unwrap();
-        assert!(detector(&Config::default(), &paths).is_err());
+        let config = Config {
+            wake_threshold: 0.65,
+            ..Config::default()
+        };
+        assert!(detector(&config, &paths).is_err());
         std::fs::write(&paths.model, include_bytes!("../assets/hey-groq.rpw")).unwrap();
         for (data, expected) in [
             (
@@ -198,7 +370,7 @@ mod tests {
                 false,
             ),
         ] {
-            let mut detector = detector(&Config::default(), &paths).unwrap();
+            let mut detector = detector(&config, &paths).unwrap();
             let mut samples = vec![0i16; 16000];
             samples.extend(
                 data.as_chunks::<2>()

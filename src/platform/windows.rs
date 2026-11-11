@@ -25,6 +25,11 @@ use windows_sys::Win32::{
 mod ui;
 mod upgrade;
 pub use upgrade::stop_for_upgrade;
+pub fn diagnostic_prompt() -> bool {
+    unsafe {
+        MessageBoxW(null_mut(), wide("Click OK and start speaking straight away: say your saved wake phrase three times in your normal voice, with a pause between repeats. Recording lasts 10 seconds from that click. There is no beep to wait for. Audio is saved only on this computer for troubleshooting and is never uploaded.").as_ptr(), wide("Whispertype — local microphone test").as_ptr(), MB_OKCANCEL | MB_ICONINFORMATION | MB_SETFOREGROUND) == IDOK
+    }
+}
 
 const CALLBACK: u32 = WM_APP + 1;
 const UPDATE: u32 = WM_APP + 2;
@@ -115,6 +120,9 @@ impl Desktop {
                 let _ = tx.send(Ok(()));
                 let mut message: MSG = zeroed();
                 while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
+                    if ui::dialog_message(&message) {
+                        continue;
+                    }
                     TranslateMessage(&message);
                     DispatchMessageW(&message);
                 }

@@ -82,7 +82,7 @@ impl Default for Config {
             tray: true,
             indicator: true,
             wake_enabled: false,
-            wake_threshold: 0.65,
+            wake_threshold: 0.,
             wake_phrase: "Personal phrase".into(),
             protect_focus: false,
         }
@@ -90,11 +90,16 @@ impl Default for Config {
 }
 impl Config {
     pub fn load(paths: &Paths) -> Result<Self> {
-        let config: Self = if paths.config.exists() {
+        let mut config: Self = if paths.config.exists() {
             toml::from_str(&fs::read_to_string(&paths.config)?)?
         } else {
             Self::default()
         };
+        // The old fixed default was stricter than ordinary repetitions of
+        // some personal recordings. Migrate it to per-model calibration.
+        if (config.wake_threshold - 0.65).abs() < 0.00001 {
+            config.wake_threshold = 0.;
+        }
         config.validate()?;
         Ok(config)
     }
@@ -117,8 +122,9 @@ impl Config {
             "speech_rms must be 0.0001..0.2"
         );
         ensure!(
-            self.wake_threshold.is_finite() && (0.1..=1.0).contains(&self.wake_threshold),
-            "wake_threshold must be 0.1..1.0"
+            self.wake_threshold.is_finite()
+                && (self.wake_threshold == 0. || (0.1..=1.0).contains(&self.wake_threshold)),
+            "wake_threshold must be 0 (automatic), or 0.1..1.0"
         );
         if let Some(lang) = &self.language {
             ensure!(
@@ -232,6 +238,17 @@ impl Shortcut {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn old_fixed_default_migrates_to_calibration_and_custom_values_are_kept() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = Paths::at(temp.path().into()).unwrap();
+        fs::write(&paths.config, "wake_threshold = 0.65\n").unwrap();
+        assert_eq!(Config::load(&paths).unwrap().wake_threshold, 0.);
+        fs::write(&paths.config, "wake_threshold = 0.57\n").unwrap();
+        assert!((Config::load(&paths).unwrap().wake_threshold - 0.57).abs() < 0.00001);
+        fs::write(&paths.config, "wake_threshold = 0\n").unwrap();
+        assert_eq!(Config::load(&paths).unwrap().wake_threshold, 0.);
+    }
     #[test]
     fn config_rejects_bad_values() {
         let mut c = Config::default();

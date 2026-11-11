@@ -7,6 +7,18 @@ not supplied during development.
 
 ## Completed checks
 
+- v0.1.4: native Windows raster checks cover the entire button rectangle,
+  including enabled/disabled rounded corners, client bounds, and the prompt
+  editor. Captures use actual Win32 controls rendered off-screen, not HTML
+  mockups. Prompt fields no longer show an empty white scrollbar.
+- Personal-reference calibration checks use other enrollment recordings,
+  excluding each recording's self match, with bounded targets and invalid/
+  silent-reference rejection. Migration preserves non-default numeric overrides.
+  An explicitly requested live Windows phrase test recognized all three repeats
+  with calibration; the old fixed target missed all three on the same recording.
+  A separate silent recording produced no detections. These local samples are
+  not bundled, and this is not a representative false-activation-rate study.
+
 - v0.1.3: hidden native-window tests verify that consecutive Windows
   notifications retain only the latest result and do not stop the tray.
   Prompt Save/Cancel preserves Unicode. Enrollment tests cover the local
@@ -26,7 +38,7 @@ not supplied during development.
 - Windows builds contain icon and group-icon resources, and the Windows shell
   can extract the icon. Inno Setup and Start Menu shortcuts use the embedded icon.
 
-- Native Windows x64 MSVC: **25 functional tests pass**, with three explicit
+- Native Windows x64 MSVC: **28 functional tests pass**, with three explicit
   opt-in tests (offline benchmark, interactive desktop, physical microphone).
   Packaging tests cover Windows/Linux archives, standalone outputs, repeat
   runs, checksums, and missing inputs. On Linux, a fake app verifies the

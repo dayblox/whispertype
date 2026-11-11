@@ -97,7 +97,7 @@ struct Engine {
     startup: bool,
     startup_changing: bool,
     enrollment_view: Option<crate::enrollment::View>,
-    test_detector: Option<Box<wake::Detector>>,
+    test_detector: Option<Box<wake::Probe>>,
 }
 
 pub fn run(paths: Paths) -> Result<()> {
@@ -495,7 +495,7 @@ impl Engine {
                     platform::notify("Finish recording your personal phrase before testing it.");
                     return Ok(());
                 }
-                let detector = wake::detector(&self.config, &self.paths)?;
+                let detector = wake::Probe::new(&self.config, &self.paths)?;
                 self.wake = false;
                 self.release_capture();
                 self.test_detector = Some(Box::new(detector));
@@ -651,12 +651,16 @@ impl Engine {
         let before = self.enrollment_view.clone();
         let outcome = if e.testing() {
             let outcome = e.tick(now);
-            if e.test_listening()
-                && self
-                    .test_detector
-                    .as_mut()
-                    .is_some_and(|d| d.process(samples))
-            {
+            let recognized = if e.test_listening() {
+                self.test_detector.as_mut().is_some_and(|d| {
+                    let recognized = d.process(samples);
+                    e.probe(d.report());
+                    recognized
+                })
+            } else {
+                false
+            };
+            if recognized {
                 e.finish("Phrase recognized. Your microphone and saved phrase work together. Enable listening when you are ready.".into());
                 Some(Outcome::TestFinished)
             } else {
@@ -673,6 +677,7 @@ impl Engine {
         if matches!(outcome, Some(Outcome::Complete)) {
             let samples = std::mem::take(&mut self.enrollment.as_mut().unwrap().samples);
             let result = wake::train_buffers("Personal phrase", samples, &self.paths.model);
+            let saved = result.is_ok();
             let message = match result {
                 Ok(()) => {
                     self.config.wake_phrase = "Personal phrase".into();
@@ -680,10 +685,23 @@ impl Engine {
                     "Your personal phrase is saved. Test it with your microphone, or enable wake listening now. Listening starts off each time you launch Whispertype.".to_string()
                 }
                 Err(error) => {
-                    format!("Could not save the phrase: {error:#}. Close this panel and try again.")
+                    let reason: String = error
+                        .to_string()
+                        .split('.')
+                        .next()
+                        .unwrap_or("Try recording again")
+                        .chars()
+                        .take(85)
+                        .collect();
+                    format!("Samples were not saved. {reason}.")
                 }
             };
-            self.enrollment.as_mut().unwrap().finish(message);
+            let enrollment = self.enrollment.as_mut().unwrap();
+            if saved {
+                enrollment.finish(message);
+            } else {
+                enrollment.restart(message);
+            }
         }
         if changed || outcome.is_some() {
             self.refresh();

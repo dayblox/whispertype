@@ -90,6 +90,8 @@ Choose **Record personal wake phrase...**. On Windows a single small panel shows
 
 **Test personal wake phrase...** runs recognition locally with a countdown and an eight-second attempt. It reports whether your saved model recognized the phrase, closes the microphone afterward, and never submits test audio to Groq or starts dictation. Retry or re-record if needed. Testing leaves wake listening off; choose **Enable listening** when ready.
 
+Wake sensitivity is calibrated from agreement between your personal recordings. The old fixed default of 0.65 migrates to automatic calibration (`wake_threshold = 0`). The target has a floor of 0.50 and a ceiling of 0.60; inconsistent recordings are rejected rather than continually lowering sensitivity. Other explicit numeric overrides remain available. Match scores are internal detector scores, not probabilities or accuracy percentages. The local test now distinguishes missing/quiet microphone audio from a phrase mismatch and shows both the measured score and target. Detection fires after three confirmed matching frames without waiting for an additional silence period.
+
 On Linux the **Personal phrase setup** submenu provides the same Record/Cancel steps and live status, with replacing desktop notifications. All enrollment audio stays local. Use your normal voice, actual microphone, and typical speaking distance. A two- or three-syllable phrase is a sensible starting point; you can personally record "Hey Groq" if you like. Personal enrollment is required, but detection accuracy still depends on your voice, microphone and noise. Test it in your environment. Untrusted playback can cause false activations.
 
 The old eSpeak "Hey Groq" reference had only synthetic regression tests and an observed ambient activation attempt. It had no representative microphone/accent/noise evaluation, so no real-world accuracy rate was established. It is retained only as a test fixture, excluded from production fallback behavior.
@@ -136,7 +138,7 @@ speech_rms = 0.006               # energy gate; lower for quiet microphones
 tray = true
 indicator = true
 wake_enabled = false            # wake starts off each launch; enable from tray
-wake_threshold = 0.65            # higher reduces false activations
+wake_threshold = 0               # automatic personal calibration; numeric override is optional
 wake_phrase = "Personal phrase"         # label; enroll to change the actual acoustic phrase
 prompt = ""                      # short vocabulary/context hints
 # language = "en"                # omit for automatic language detection

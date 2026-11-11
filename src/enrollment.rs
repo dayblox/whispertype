@@ -37,12 +37,13 @@ pub struct Enrollment {
     voiced_samples: usize,
     hint: String,
     testing: bool,
+    probe: Option<crate::wake::ProbeReport>,
 }
 impl Enrollment {
     pub fn new() -> Self {
         Self { samples: HashMap::new(), phase: Phase::Ready, current: Vec::new(),
             pre_roll: [[0; FRAME]; 8], next: 0, buffered: 0, silence: 0,
-            voiced_samples: 0, testing: false, hint: "Choose a short, distinctive phrase. Record it three times in your normal voice. Audio stays on this device.".into() }
+            voiced_samples: 0, testing: false, probe: None, hint: "Choose a short, distinctive phrase. Record it three times in your normal voice. Audio stays on this device.".into() }
     }
     pub fn active(&self) -> bool {
         matches!(self.phase, Phase::Countdown(_) | Phase::Listening(_))
@@ -65,10 +66,21 @@ impl Enrollment {
         self.testing = false;
         self.phase = Phase::Done(message);
     }
+    pub fn restart(&mut self, message: String) {
+        *self = Self::new();
+        self.hint = message;
+    }
     pub fn arm_test(&mut self, now: Instant) {
         self.phase = Phase::Ready;
         self.arm(now);
         self.testing = true;
+        self.probe = None;
+    }
+    pub fn probe(&mut self, report: &crate::wake::ProbeReport) {
+        // Limit live status updates to about four per second while testing.
+        if report.frames.is_multiple_of(8) {
+            self.probe = Some(report.clone());
+        }
     }
     pub fn testing(&self) -> bool {
         self.testing
@@ -96,6 +108,11 @@ impl Enrollment {
                     .div_ceil(1000)
                     .max(1)
             ),
+            Phase::Listening(_) if self.testing && self.probe.is_some() => {
+                let p = self.probe.as_ref().unwrap();
+                format!("Say your phrase naturally. Nothing is uploaded.\nMicrophone: {} · peak level {:.4}\nMatch score: {:.3} · target {:.3}",
+                    if p.speech_frames > 0 { "audio heard" } else { "too quiet / muted" }, p.peak_rms, p.best_score, p.target_score)
+            }
             Phase::Listening(_) if self.voiced_samples == 0 => {
                 format!(
                     "{label} — say your phrase now.{}",
@@ -225,7 +242,12 @@ impl Enrollment {
         }
         if let Phase::Listening(started) = self.phase {
             if self.testing && now.duration_since(started) >= Duration::from_secs(8) {
-                self.finish("No match this time. Repeat your phrase naturally at the same distance as your recordings. Try again, or re-record if it keeps failing.".into());
+                let message = match &self.probe {
+                    Some(p) if p.speech_frames == 0 => format!("Microphone is too quiet. No sound reached the voice gate (peak level {:.4}). Check the selected input, microphone gain, or mute switch.", p.peak_rms),
+                    Some(p) => format!("Voice heard, phrase not recognized. Best match {:.3}, target {:.3}, confirmed matching frames {} / 3. Try the same speaking distance; the score helps diagnose sensitivity instead of guessing.", p.best_score, p.target_score, p.partial_frames),
+                    None => "No microphone audio received. Check the input device and microphone permissions, then retry.".into(),
+                };
+                self.finish(message);
                 return Some(Outcome::TestFinished);
             }
             if self.voiced_samples == 0 && now.duration_since(started) >= Duration::from_secs(10) {
@@ -258,7 +280,7 @@ mod tests {
         ));
         assert!(e.done() && !e.testing() && !e.active());
         assert!(e.samples.is_empty());
-        assert_eq!(e.view(now).title, "No match this time");
+        assert_eq!(e.view(now).title, "No microphone audio received");
         e.arm_test(now);
         e.finish("Phrase recognized. Enable listening when ready.".into());
         assert!(e.done() && !e.active());

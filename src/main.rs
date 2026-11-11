@@ -28,6 +28,12 @@ fn run() -> Result<()> {
     let paths = config::Paths::new()?;
     match args.first().map(String::as_str).unwrap_or("run") {
         #[cfg(windows)]
+        "_wake-diagnostic" => wake::diagnose(
+            &paths,
+            std::path::Path::new(args.get(1).context("Missing local report path")?),
+            args.get(2).map(std::path::Path::new),
+        ),
+        #[cfg(windows)]
         "_stop-for-upgrade" => platform::stop_for_upgrade(std::path::Path::new(
             args.get(1).context("Missing installed executable path")?,
         )),
