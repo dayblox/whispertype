@@ -37,7 +37,7 @@ def package(platform, binary, output):
                     if path.is_file():
                         bundle.write(path, f'{name}/{path.relative_to(folder).as_posix()}')
         else:
-            shutil.copy2(ROOT / 'scripts/install-linux.sh', folder / 'install-linux.sh')
+            (folder / 'install-linux.sh').write_bytes((ROOT / 'scripts/install-linux.sh').read_bytes().replace(b'\r\n', b'\n'))
             (folder / 'install-linux.sh').chmod(0o755)
             (folder / 'whispertype').chmod(0o755)
             archive = output / f'{name}.tar.gz'
@@ -116,7 +116,9 @@ def main():
         archives.append(standalone)
     for name in ('LICENSE', 'THIRD_PARTY_NOTICES.txt'):
         notice = args.output_dir / name
-        shutil.copy2(ROOT / name, notice)
+        # Shared release assets must have identical hashes on CRLF Windows and
+        # LF Linux checkouts. Archives retain their platform's documentation.
+        notice.write_bytes((ROOT / name).read_bytes().replace(b'\r\n', b'\n'))
         archives.append(notice)
     sums = []
     for path in archives:

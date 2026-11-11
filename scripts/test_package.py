@@ -38,6 +38,7 @@ class PackageTests(unittest.TestCase):
                         self.assertEqual(bundle.extractfile(prefix + 'whispertype').read(), binary.read_bytes())
                         self.assertEqual(bundle.getmember(prefix + 'whispertype').mode & 0o777, 0o755)
                         self.assertIn(prefix + 'install-linux.sh', names)
+                        self.assertNotIn(b'\r\n', bundle.extractfile(prefix + 'install-linux.sh').read())
                 for filename in ('README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.txt', 'benchmarks/results.json'):
                     self.assertIn(prefix + filename, names)
                 self.assertTrue(all(name == prefix[:-1] or name.startswith(prefix) for name in names))
@@ -47,6 +48,8 @@ class PackageTests(unittest.TestCase):
                     digest, name = line.split('  ', 1)
                     self.assertEqual(hashlib.sha256((output / name).read_bytes()).hexdigest(), digest)
                 self.assertFalse(any(path.is_dir() for path in output.iterdir()), 'Staging files leaked')
+                self.assertNotIn(b'\r\n', (output / 'LICENSE').read_bytes())
+                self.assertNotIn(b'\r\n', (output / 'THIRD_PARTY_NOTICES.txt').read_bytes())
 
     @unittest.skipUnless(sys.platform == 'linux', 'Executes a Linux installer with a fake application')
     def test_linux_self_extractor_installs_prebuilt_binary_without_cargo(self):
