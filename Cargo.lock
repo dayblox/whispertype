@@ -1667,8 +1667,6 @@ dependencies = [
 [[package]]
 name = "rustpotter"
 version = "3.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc656425c55521e7fbd6445b66d588827dbe673f89c0491628345f073147696c"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -2350,7 +2348,7 @@ dependencies = [
 
 [[package]]
 name = "whispertype"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "async-io",

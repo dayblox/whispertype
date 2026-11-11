@@ -1,0 +1,35 @@
+{
+  "label": "v0.1.5 same-workload release benchmark",
+  "workloads": {
+    "digital_silence": {
+      "allocations_per_pass": 0,
+      "audio_seconds_per_pass": 30.0,
+      "detections_per_pass": 0,
+      "frames_per_pass": 1000,
+      "median_ms": 16.8915,
+      "microseconds_per_frame": 0.4222875,
+      "passes": 40,
+      "peak_incremental_live_bytes": 0
+    },
+    "nonmatching_speech": {
+      "allocations_per_pass": 884,
+      "audio_seconds_per_pass": 5.52,
+      "detections_per_pass": 0,
+      "frames_per_pass": 184,
+      "median_ms": 810.3312000000001,
+      "microseconds_per_frame": 110.09934782608697,
+      "passes": 40,
+      "peak_incremental_live_bytes": 7808
+    },
+    "personal_phrase": {
+      "allocations_per_pass": 1690,
+      "audio_seconds_per_pass": 13.02,
+      "detections_per_pass": 3,
+      "frames_per_pass": 434,
+      "median_ms": 952.9565,
+      "microseconds_per_frame": 54.89380760368664,
+      "passes": 40,
+      "peak_incremental_live_bytes": 7986
+    }
+  }
+}

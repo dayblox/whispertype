@@ -68,8 +68,9 @@ jobs:
       - name: Test, build and package Linux
         if: runner.os == 'Linux'
         run: |
-          cargo fmt --check
+          cargo fmt --all --check
           cargo test --locked
+          cargo test --locked -p rustpotter --lib mfcc::
           cargo clippy --locked --all-targets -- -D warnings
           cargo build --release --locked
           python scripts/test_startup_linux.py

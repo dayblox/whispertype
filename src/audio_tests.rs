@@ -2,9 +2,77 @@ use super::*;
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     hint::black_box,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicIsize, AtomicUsize, Ordering},
     time::Instant,
 };
+
+#[test]
+fn quiet_delivery_suppression_preserves_preroll_hangover_and_recording_pcm() {
+    let mut delivery = FrameDelivery::new(0.003);
+    let mut received = Vec::new();
+    for _ in 0..1000 {
+        delivery.process([0; FRAME], true, |frame| received.push(frame));
+    }
+    assert!(received.is_empty());
+    delivery.process([9000; FRAME], true, |frame| received.push(frame));
+    assert_eq!(received.len(), 9);
+    assert!(received[..8].iter().all(|frame| *frame == [0; FRAME]));
+    for _ in 0..68 {
+        delivery.process([0; FRAME], true, |frame| received.push(frame));
+    }
+    assert_eq!(received.len(), 77);
+    for _ in 0..1000 {
+        delivery.process([0; FRAME], true, |frame| received.push(frame));
+    }
+    assert_eq!(received.len(), 77);
+    received.clear();
+    for value in [0, 1, 33, -42, 0, 9000] {
+        delivery.process([value; FRAME], false, |frame| received.push(frame));
+    }
+    assert_eq!(
+        received,
+        [0, 1, 33, -42, 0, 9000].map(|value| [value; FRAME])
+    );
+}
+
+#[test]
+fn quiet_delivery_keeps_detection_frames_identical_across_long_pauses() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::at(temp.path().into()).unwrap();
+    std::fs::write(&paths.model, include_bytes!("../assets/hey-groq.rpw")).unwrap();
+    let config = Config {
+        wake_threshold: 0.65,
+        ..Config::default()
+    };
+    let mut direct = crate::wake::detector(&config, &paths).unwrap();
+    let mut gated = crate::wake::detector(&config, &paths).unwrap();
+    let mut delivery = FrameDelivery::new(config.speech_rms * 0.5);
+    let mut input = vec![0; RATE * 5];
+    for _ in 0..2 {
+        input.extend(
+            include_bytes!("../assets/test-positive.pcm")
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|v| i16::from_le_bytes(*v)),
+        );
+        input.extend(vec![0; RATE * 5]);
+    }
+    let mut direct_hits = Vec::new();
+    let mut gated_hits = Vec::new();
+    for (index, frame) in input.as_chunks::<FRAME>().0.iter().enumerate() {
+        if direct.process(frame) {
+            direct_hits.push(index);
+        }
+        delivery.process(*frame, true, |frame| {
+            if gated.process(&frame) {
+                gated_hits.push(index);
+            }
+        });
+    }
+    assert_eq!(direct_hits.len(), 2);
+    assert_eq!(gated_hits, direct_hits);
+}
 
 #[test]
 #[ignore = "Requires a real microphone; captures three seconds locally without storing or uploading audio"]
@@ -32,7 +100,7 @@ fn microphone_smoke() {
 struct Allocator;
 static TRACK: AtomicBool = AtomicBool::new(false);
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-static LIVE: AtomicUsize = AtomicUsize::new(0);
+static LIVE: AtomicIsize = AtomicIsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
 #[global_allocator]
 static ALLOCATOR: Allocator = Allocator;
@@ -41,14 +109,15 @@ unsafe impl GlobalAlloc for Allocator {
         let pointer = System.alloc(layout);
         if !pointer.is_null() && TRACK.load(Ordering::Relaxed) {
             ALLOCS.fetch_add(1, Ordering::Relaxed);
-            let live = LIVE.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
-            PEAK.fetch_max(live, Ordering::Relaxed);
+            let live =
+                LIVE.fetch_add(layout.size() as isize, Ordering::Relaxed) + layout.size() as isize;
+            PEAK.fetch_max(live.max(0) as usize, Ordering::Relaxed);
         }
         pointer
     }
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
         if TRACK.load(Ordering::Relaxed) {
-            LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
+            LIVE.fetch_sub(layout.size() as isize, Ordering::Relaxed);
         }
         System.dealloc(pointer, layout);
     }
@@ -197,6 +266,31 @@ fn timed(mut action: impl FnMut()) -> f64 {
 #[ignore = "Offline release benchmark; run alone with --test-threads=1"]
 fn optimization_benchmark() {
     let mut report = serde_json::Map::new();
+    for (name, gated) in [("shortcut_delivery", false), ("wake_delivery", true)] {
+        let mut delivery = FrameDelivery::new(0.003);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(16);
+        let (count, _) = allocations(|| {
+            for i in 0..1000 {
+                delivery.process(
+                    if i % 100 < 10 {
+                        [9000; FRAME]
+                    } else {
+                        [0; FRAME]
+                    },
+                    gated,
+                    |frame| {
+                        sender.try_send(crate::engine::Event::Audio(frame)).unwrap();
+                        black_box(receiver.try_recv().unwrap());
+                    },
+                );
+            }
+        });
+        assert_eq!(count, 0, "Delivery allocated after initialization");
+        report.insert(
+            name.into(),
+            serde_json::json!({"allocations_per_1000_frames": count}),
+        );
+    }
     for (name, rate, channels) in [("native_16khz", RATE, 1), ("resampled_48khz", 48000, 2)] {
         let input: Vec<f32> = (0..rate * 3 / 100 * channels)
             .map(|i| (i as f32 * 0.1).sin() * 0.4)
@@ -269,4 +363,66 @@ fn optimization_benchmark() {
     assert!(new_peak * 2 < old_peak);
     report.insert("audio_buffers_120s".into(),serde_json::json!({"before_peak_bytes":old_peak,"after_peak_bytes":new_peak,"note":"allocator-tracked audio buffers, excludes OS/driver/TLS memory"}));
     println!("OPTIMIZATION_JSON={}", serde_json::Value::Object(report));
+}
+
+#[test]
+#[ignore = "Offline same-workload efficiency benchmark; run alone in release mode"]
+fn efficiency_benchmark() {
+    let model = std::env::var_os("WHISPERTYPE_BENCH_MODEL").expect("Set WHISPERTYPE_BENCH_MODEL");
+    let positive = std::env::var_os("WHISPERTYPE_BENCH_WAV").expect("Set WHISPERTYPE_BENCH_WAV");
+    let mut reader = hound::WavReader::open(positive).unwrap();
+    let mut positive: Vec<i16> = reader.samples::<i16>().map(Result::unwrap).collect();
+    positive.extend(vec![0; RATE * 3]);
+    let mut negative: Vec<i16> = include_bytes!("../assets/test-negative.pcm")
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|v| i16::from_le_bytes(*v))
+        .collect();
+    negative.extend(vec![0; RATE * 3]);
+    let temp = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::at(temp.path().into()).unwrap();
+    std::fs::copy(model, &paths.model).unwrap();
+    let mut report = serde_json::Map::new();
+    for (name, pcm, expected) in [
+        ("digital_silence", vec![0; RATE * 30], 0),
+        ("nonmatching_speech", negative, 0),
+        ("personal_phrase", positive, 3),
+    ] {
+        let frames = pcm.as_chunks::<FRAME>().0;
+        let mut detector = crate::wake::detector(&Config::default(), &paths).unwrap();
+        assert_eq!(
+            frames
+                .iter()
+                .filter(|frame| detector.process(frame))
+                .count(),
+            expected
+        );
+        let loops = 40;
+        let milliseconds = timed(|| {
+            let mut hits = 0;
+            for _ in 0..loops {
+                for frame in frames {
+                    hits += detector.process(black_box(frame)) as usize;
+                }
+            }
+            assert_eq!(hits, loops * expected);
+        });
+        let (allocs, peak) = allocations(|| {
+            for frame in frames {
+                black_box(detector.process(black_box(frame)));
+            }
+        });
+        report.insert(
+            name.into(),
+            serde_json::json!({
+                "median_ms": milliseconds, "passes": loops, "frames_per_pass": frames.len(),
+                "audio_seconds_per_pass": frames.len() as f64 * 0.03,
+                "microseconds_per_frame": milliseconds * 1000. / (loops * frames.len()) as f64,
+            "allocations_per_pass": allocs, "peak_incremental_live_bytes": peak,
+                "detections_per_pass": expected,
+            }),
+        );
+    }
+    println!("EFFICIENCY_JSON={}", serde_json::Value::Object(report));
 }

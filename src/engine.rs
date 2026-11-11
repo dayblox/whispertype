@@ -64,6 +64,8 @@ pub fn valid_command(s: &str) -> bool {
             | "enroll-cancel"
             | "prompt-edit"
             | "wake-test"
+            | "_profile-wake-record"
+            | "_profile-stats"
             | "quit"
     )
 }
@@ -98,6 +100,8 @@ struct Engine {
     startup_changing: bool,
     enrollment_view: Option<crate::enrollment::View>,
     test_detector: Option<Box<wake::Probe>>,
+    profiling: bool,
+    audio_events: u64,
 }
 
 pub fn run(paths: Paths) -> Result<()> {
@@ -136,6 +140,8 @@ pub fn run(paths: Paths) -> Result<()> {
         startup_changing: false,
         enrollment_view: None,
         test_detector: None,
+        profiling: std::env::var_os("WHISPERTYPE_PROFILE").is_some(),
+        audio_events: 0,
     };
     app.refresh();
     loop {
@@ -224,7 +230,7 @@ pub fn run(paths: Paths) -> Result<()> {
 
 impl Engine {
     fn refresh(&mut self) {
-        self.state = if self.enrollment.as_ref().is_some_and(Enrollment::active) {
+        let state = if self.enrollment.as_ref().is_some_and(Enrollment::active) {
             "enrolling"
         } else if self.recording.is_some() {
             "recording"
@@ -234,8 +240,11 @@ impl Engine {
             "listening"
         } else {
             "idle"
+        };
+        if self.profiling && self.state != state {
+            eprintln!("Profile state: {state}");
         }
-        .into();
+        self.state = state.into();
         self.enrollment_view = self.enrollment.as_ref().map(|e| e.view(Instant::now()));
         self.desktop.update(Snapshot {
             config: self.config.clone(),
@@ -249,21 +258,32 @@ impl Engine {
         eprintln!("{message}");
         platform::notify(message);
     }
-    fn ensure_capture(&mut self) -> Result<()> {
+    fn ensure_capture(&mut self, wake_only: bool) -> Result<()> {
         if self.capture.is_none() {
             self.capture = Some(Capture::start(&self.config, self.sender.clone())?);
         }
+        self.capture.as_ref().unwrap().set_wake_delivery(wake_only);
         Ok(())
     }
     fn release_capture(&mut self) {
         self.capture = None;
-        self.detector = None;
+        if self.wake {
+            if let Some(detector) = &mut self.detector {
+                detector.reset();
+            }
+        } else {
+            self.detector = None;
+        }
         self.test_detector = None;
     }
     fn resume(&mut self) -> Result<()> {
         if self.wake {
-            self.detector = Some(Box::new(wake::detector(&self.config, &self.paths)?));
-            self.ensure_capture()?;
+            if let Some(detector) = &mut self.detector {
+                detector.reset();
+            } else {
+                self.detector = Some(Box::new(wake::detector(&self.config, &self.paths)?));
+            }
+            self.ensure_capture(true)?;
         } else {
             self.release_capture();
         }
@@ -282,7 +302,11 @@ impl Engine {
             return self.begin_enrollment();
         }
         if enabled {
-            let _ = wake::detector(&self.config, &self.paths)?;
+            if self.detector.is_none() {
+                self.detector = Some(Box::new(wake::detector(&self.config, &self.paths)?));
+            }
+        } else {
+            self.detector = None;
         }
         self.wake = enabled;
         self.config.wake_enabled = false;
@@ -302,10 +326,10 @@ impl Engine {
             return Ok(());
         }
         ensure!(
-            std::env::var_os("GROQ_API_KEY").is_some() || self.paths.key.exists(),
+            self.profiling || std::env::var_os("GROQ_API_KEY").is_some() || self.paths.key.exists(),
             "Add your Groq API key first (whispertype set-key)"
         );
-        self.ensure_capture()?;
+        self.ensure_capture(false)?;
         self.recording = Some(Recording {
             samples: Vec::with_capacity(RATE * 2),
             started: Instant::now(),
@@ -317,6 +341,14 @@ impl Engine {
         Ok(())
     }
     fn finish(&mut self) -> Result<()> {
+        // Explicit profiling sessions can capture but can NEVER launch an
+        // upload worker, even if a timer or wake event finishes a recording.
+        if self.profiling {
+            self.recording = None;
+            self.activation.reset();
+            self.release_capture();
+            return self.resume();
+        }
         let Some(recording) = self.recording.take() else {
             return Ok(());
         };
@@ -396,7 +428,14 @@ impl Engine {
             let _ = job.child.kill();
             let _ = job.child.wait();
         }
-        self.release_capture();
+        if !self.wake
+            || self
+                .capture
+                .as_ref()
+                .is_some_and(|c| c.overflow.load(Ordering::Relaxed))
+        {
+            self.release_capture();
+        }
         if let Err(e) = self.resume() {
             self.wake = false;
             self.error(&format!("{e:#}"));
@@ -430,6 +469,19 @@ impl Engine {
                 self.config.mode,
                 Duration::from_millis(self.config.hold_ms),
             ),
+            "_profile-wake-record" if self.profiling => return self.start(true),
+            "_profile-stats" if self.profiling => {
+                eprintln!(
+                    "Profile stats: {}",
+                    serde_json::json!({
+                        "state": self.state, "audio_events": self.audio_events,
+                        "recording_samples": self.recording.as_ref().map_or(0, |r| r.samples.len()),
+                        "recording_capacity": self.recording.as_ref().map_or(0, |r| r.samples.capacity()),
+                        "wake_recording": self.recording.as_ref().is_some_and(|r| r.wake)
+                    })
+                );
+                return Ok(());
+            }
             "start" => Action::Start,
             "stop" => Action::Stop,
             "toggle" => {
@@ -474,7 +526,7 @@ impl Engine {
                     return self.set_wake(true);
                 }
                 if self.enrollment.is_some() {
-                    self.ensure_capture()?;
+                    self.ensure_capture(false)?;
                     self.enrollment.as_mut().unwrap().arm(Instant::now());
                     self.refresh();
                 }
@@ -501,7 +553,7 @@ impl Engine {
                 self.test_detector = Some(Box::new(detector));
                 let enrollment = self.enrollment.get_or_insert_with(Enrollment::new);
                 enrollment.arm_test(Instant::now());
-                self.ensure_capture()?;
+                self.ensure_capture(false)?;
                 self.refresh();
                 return Ok(());
             }
@@ -564,6 +616,7 @@ impl Engine {
                 self.config = next;
                 self.config.save(&self.paths)?;
                 self.activation.reset();
+                self.detector = None;
                 self.release_capture();
                 platform::notify("Settings reloaded from file.");
                 return self.resume();
@@ -590,6 +643,9 @@ impl Engine {
         }
     }
     fn audio(&mut self, samples: audio::Frame) -> Result<()> {
+        if self.profiling {
+            self.audio_events += 1;
+        }
         if self
             .capture
             .as_ref()
@@ -603,11 +659,13 @@ impl Engine {
             return self.enroll_audio(&samples);
         }
         if let Some(recording) = &mut self.recording {
-            if audio::is_speech(&samples, self.config.speech_rms) {
-                recording.silence = 0;
-                recording.voiced = true;
-            } else {
-                recording.silence += samples.len();
+            if recording.wake {
+                if audio::is_speech(&samples, self.config.speech_rms) {
+                    recording.silence = 0;
+                    recording.voiced = true;
+                } else {
+                    recording.silence += samples.len();
+                }
             }
             let room = self.config.max_seconds as usize * RATE - recording.samples.len();
             audio::append_recording(
@@ -620,7 +678,7 @@ impl Engine {
                     && ((recording.voiced
                         && recording.silence >= RATE * self.config.silence_ms as usize / 1000)
                         || !recording.voiced && recording.started.elapsed().as_secs() >= 5);
-            if finish {
+            if finish && !self.profiling {
                 self.finish()?;
             }
         } else if self.wake && self.job.is_none() {

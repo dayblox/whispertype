@@ -204,6 +204,13 @@ pub fn detector(config: &Config, paths: &Paths) -> Result<Detector> {
     })
 }
 impl Detector {
+    pub fn reset(&mut self) {
+        self.inner.reset();
+        self.next = 0;
+        self.buffered = 0;
+        self.hangover = 0;
+        self.active = false;
+    }
     pub fn process(&mut self, frame: &audio::Frame) -> bool {
         if audio::is_speech(frame, self.threshold) {
             self.hangover = 2000 / 30 + 1;

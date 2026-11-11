@@ -516,7 +516,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, w: WPARAM, l: LPARAM) -> LRES
     CallNextHookEx(null_mut(), code, w, l)
 }
 
-const CONTROL_COMMANDS: [&str; 20] = [
+const CONTROL_COMMANDS: [&str; 22] = [
     "press",
     "release",
     "toggle",
@@ -537,6 +537,8 @@ const CONTROL_COMMANDS: [&str; 20] = [
     "enroll-cancel",
     "prompt-edit",
     "wake-test",
+    "_profile-wake-record",
+    "_profile-stats",
 ];
 pub fn send(command: &str) -> Result<()> {
     unsafe {

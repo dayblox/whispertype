@@ -1,3 +1,7 @@
+Rustpotter 3.0.2 includes local Whispertype resource-efficiency modifications.
+See vendor/rustpotter/UPSTREAM.md in the source distribution for details.
+Original Apache-2.0 license and upstream notices are retained below.
+
 Whispertype third-party notices
 
 This file lists dependencies in the resolved Cargo graph, including build/test and platform-specific crates that may not be linked into a particular release.

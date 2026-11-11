@@ -13,8 +13,9 @@ try {
         & cargo @Arguments
         if ($LASTEXITCODE -ne 0) { throw "cargo $Arguments failed ($LASTEXITCODE)" }
     }
-    Invoke-Cargo -Arguments @('fmt', '--check')
+    Invoke-Cargo -Arguments @('fmt', '--all', '--check')
     Invoke-Cargo -Arguments @('test', '--locked')
+    Invoke-Cargo -Arguments @('test', '--locked', '-p', 'rustpotter', '--lib', 'mfcc::')
     Invoke-Cargo -Arguments @('clippy', '--locked', '--all-targets', '--', '-D', 'warnings')
     Invoke-Cargo -Arguments @('build', '--release', '--locked')
     & python scripts/verify-windows.py target/release/whispertype.exe

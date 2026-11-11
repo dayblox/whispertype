@@ -1,6 +1,6 @@
 [package]
 name = "whispertype"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 license = "MIT"
 description = "Quiet, native voice typing with Groq Whisper for Windows and Linux"
@@ -45,4 +45,12 @@ tempfile = "3"
 
 [build-dependencies]
 embed-resource = "3"
+
+[patch.crates-io]
+rustpotter = { path = "vendor/rustpotter" }
+
+[workspace]
+members = ["vendor/rustpotter"]
+default-members = ["."]
+resolver = "2"
 

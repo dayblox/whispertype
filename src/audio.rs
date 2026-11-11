@@ -6,89 +6,83 @@ use std::{
     io::Cursor,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, SyncSender},
+        mpsc::SyncSender,
         Arc,
     },
-    thread,
 };
+
+#[cfg(test)]
+use std::sync::mpsc;
 
 pub const RATE: usize = 16000;
 
 pub struct Capture {
-    stop: mpsc::Sender<()>,
-    thread: Option<thread::JoinHandle<()>>,
+    _stream: cpal::Stream,
+    gated: Arc<AtomicBool>,
     pub overflow: Arc<AtomicBool>,
 }
 impl Capture {
     pub fn start(config: &Config, sender: SyncSender<Event>) -> Result<Self> {
-        let microphone = config.microphone.clone();
-        let (stop, stop_rx) = mpsc::channel();
-        let (ready_tx, ready) = mpsc::sync_channel(1);
+        let host = cpal::default_host();
+        let device = if let Some(name) = &config.microphone {
+            host.input_devices()?
+                .find(|d| d.name().is_ok_and(|n| n.contains(name)))
+                .context("Configured microphone not found")?
+        } else {
+            host.default_input_device()
+                .context("No default microphone")?
+        };
         let overflow = Arc::new(AtomicBool::new(false));
-        let overflow_in = overflow.clone();
-        let thread = thread::spawn(move || {
-            let stream = (|| -> Result<cpal::Stream> {
-                let host = cpal::default_host();
-                let device = if let Some(name) = microphone {
-                    host.input_devices()?
-                        .find(|d| d.name().is_ok_and(|n| n.contains(&name)))
-                        .context("Configured microphone not found")?
-                } else {
-                    host.default_input_device()
-                        .context("No default microphone")?
-                };
-                let default = device.default_input_config()?;
-                let preferred = prefer_native(&device, &default);
-                let open = |supported: cpal::SupportedStreamConfig| -> Result<cpal::Stream> {
-                    let format = supported.sample_format();
-                    let config: cpal::StreamConfig = supported.into();
-                    match format {
-                        cpal::SampleFormat::F32 => {
-                            build::<f32>(&device, &config, sender.clone(), overflow_in.clone())
-                        }
-                        cpal::SampleFormat::I16 => {
-                            build::<i16>(&device, &config, sender.clone(), overflow_in.clone())
-                        }
-                        cpal::SampleFormat::U16 => {
-                            build::<u16>(&device, &config, sender.clone(), overflow_in.clone())
-                        }
-                        other => bail!("Microphone sample format {other} is unsupported"),
-                    }
-                };
-                // Some drivers advertise formats that cannot actually be opened.
-                let stream = if let Some(preferred) = preferred {
-                    open(preferred).or_else(|_| open(default))?
-                } else {
-                    open(default)?
-                };
-                stream.play()?;
-                Ok(stream)
-            })();
-            match stream {
-                Ok(stream) => {
-                    let _ = ready_tx.send(Ok(()));
-                    let _ = stop_rx.recv();
-                    drop(stream);
-                }
-                Err(err) => {
-                    let _ = ready_tx.send(Err(format!("{err:#}")));
-                }
+        let gated = Arc::new(AtomicBool::new(false));
+        let default = device.default_input_config()?;
+        let preferred = prefer_native(&device, &default);
+        let open = |supported: cpal::SupportedStreamConfig| -> Result<cpal::Stream> {
+            let format = supported.sample_format();
+            let stream_config: cpal::StreamConfig = supported.into();
+            match format {
+                cpal::SampleFormat::F32 => build::<f32>(
+                    &device,
+                    &stream_config,
+                    sender.clone(),
+                    overflow.clone(),
+                    gated.clone(),
+                    config.speech_rms * 0.5,
+                ),
+                cpal::SampleFormat::I16 => build::<i16>(
+                    &device,
+                    &stream_config,
+                    sender.clone(),
+                    overflow.clone(),
+                    gated.clone(),
+                    config.speech_rms * 0.5,
+                ),
+                cpal::SampleFormat::U16 => build::<u16>(
+                    &device,
+                    &stream_config,
+                    sender.clone(),
+                    overflow.clone(),
+                    gated.clone(),
+                    config.speech_rms * 0.5,
+                ),
+                other => bail!("Microphone sample format {other} is unsupported"),
             }
-        });
-        ready.recv()?.map_err(anyhow::Error::msg)?;
+        };
+        // Capture belongs to the engine thread; CPAL already owns the callback
+        // thread. A second thread sleeping just to hold Stream is unnecessary.
+        let stream = if let Some(preferred) = preferred {
+            open(preferred).or_else(|_| open(default))?
+        } else {
+            open(default)?
+        };
+        stream.play()?;
         Ok(Self {
-            stop,
-            thread: Some(thread),
+            _stream: stream,
+            gated,
             overflow,
         })
     }
-}
-impl Drop for Capture {
-    fn drop(&mut self) {
-        let _ = self.stop.send(());
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
+    pub fn set_wake_delivery(&self, enabled: bool) {
+        self.gated.store(enabled, Ordering::Relaxed);
     }
 }
 
@@ -96,6 +90,56 @@ impl Drop for Capture {
 /// channel allocation-free during capture, including when the main thread is busy.
 pub const FRAME: usize = RATE * 3 / 100;
 pub type Frame = [i16; FRAME];
+
+/// Suppress long quiet stretches only while waiting for a wake phrase.
+/// Keep the same pre-roll/hangover as Detector, including its reset frame.
+struct FrameDelivery {
+    pre_roll: [Frame; 8],
+    next: usize,
+    buffered: usize,
+    hangover: usize,
+    gated: bool,
+    threshold: f32,
+}
+impl FrameDelivery {
+    fn new(threshold: f32) -> Self {
+        Self {
+            pre_roll: [[0; FRAME]; 8],
+            next: 0,
+            buffered: 0,
+            hangover: 0,
+            gated: false,
+            threshold,
+        }
+    }
+    fn process(&mut self, frame: Frame, gated: bool, mut emit: impl FnMut(Frame)) {
+        if gated != self.gated {
+            self.next = 0;
+            self.buffered = 0;
+            self.hangover = 0;
+            self.gated = gated;
+        }
+        if !gated {
+            emit(frame);
+            return;
+        }
+        if is_speech(&frame, self.threshold) {
+            for i in 0..self.buffered {
+                emit(self.pre_roll[(self.next + 8 - self.buffered + i) % 8]);
+            }
+            self.buffered = 0;
+            self.hangover = 2000 / 30 + 2;
+            emit(frame);
+        } else if self.hangover > 0 {
+            self.hangover -= 1;
+            emit(frame);
+        } else {
+            self.pre_roll[self.next] = frame;
+            self.next = (self.next + 1) % 8;
+            self.buffered = (self.buffered + 1).min(8);
+        }
+    }
+}
 
 fn prefer_native(
     device: &cpal::Device,
@@ -268,6 +312,8 @@ fn build<T>(
     config: &cpal::StreamConfig,
     sender: SyncSender<Event>,
     overflow: Arc<AtomicBool>,
+    gated: Arc<AtomicBool>,
+    threshold: f32,
 ) -> Result<cpal::Stream>
 where
     T: cpal::SizedSample,
@@ -287,13 +333,24 @@ where
         );
     }
     let mut converter = Converter::new(config.sample_rate.0 as usize, config.channels as usize)?;
+    let mut delivery = FrameDelivery::new(threshold);
     let error_sender = sender.clone();
     Ok(device.build_input_stream(
         config,
         move |data: &[T], _| {
             converter.process(data, |frame| {
-                if sender.try_send(Event::Audio(frame)).is_err() {
-                    overflow.store(true, Ordering::Relaxed);
+                let emit = |frame| {
+                    if sender.try_send(Event::Audio(frame)).is_err() {
+                        overflow.store(true, Ordering::Relaxed);
+                    }
+                };
+                if gated.load(Ordering::Relaxed) {
+                    delivery.process(frame, true, emit);
+                } else {
+                    // Keep recording on the original direct-delivery path.
+                    // The quiet gate and its larger stack frame are wake-only.
+                    delivery.gated = false;
+                    emit(frame);
                 }
             });
         },
