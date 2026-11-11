@@ -19,7 +19,7 @@ use std::{
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
-    System::LibraryLoader::GetModuleHandleW,
+    System::{LibraryLoader::GetModuleHandleW, Registry::*},
     UI::{Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
 };
 
@@ -75,7 +75,12 @@ pub struct Desktop {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl Desktop {
-    pub fn start(_paths: &Paths, config: &Config, sender: SyncSender<Event>) -> Result<Self> {
+    pub fn start(
+        _paths: &Paths,
+        config: &Config,
+        sender: SyncSender<Event>,
+        startup: bool,
+    ) -> Result<Self> {
         set_shortcut(_paths, config)?;
         SENDER
             .set(sender)
@@ -85,6 +90,7 @@ impl Desktop {
                 config: config.clone(),
                 state: "idle".into(),
                 wake: false,
+                startup,
             }))
             .map_err(|_| anyhow::anyhow!("Desktop already initialized"))?;
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
@@ -363,6 +369,7 @@ unsafe fn create_menu(s: &Snapshot) -> HMENU {
     append(root, 32, "Restore ‘Hey Groq’ wake phrase", false);
     AppendMenuW(root, MF_SEPARATOR, 0, null());
     append(root, 40, "Reload configuration", false);
+    append(root, 43, "Launch at startup", s.startup);
     append(root, 42, "Check for updates", false);
     append(root, 41, "Quit", false);
     root
@@ -405,6 +412,7 @@ unsafe fn menu(window: HWND) {
         40 => "reload",
         41 => "quit",
         42 => "check-updates",
+        43 => "startup-toggle",
         _ => return,
     };
     event(command);
@@ -492,7 +500,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, w: WPARAM, l: LPARAM) -> LRES
     CallNextHookEx(null_mut(), code, w, l)
 }
 
-const CONTROL_COMMANDS: [&str; 15] = [
+const CONTROL_COMMANDS: [&str; 16] = [
     "press",
     "release",
     "toggle",
@@ -508,6 +516,7 @@ const CONTROL_COMMANDS: [&str; 15] = [
     "wake-default",
     "shortcut-capture",
     "check-updates",
+    "startup-toggle",
 ];
 pub fn send(command: &str) -> Result<()> {
     unsafe {
@@ -775,26 +784,82 @@ pub fn indicator(kind: &str) -> Result<()> {
     }
 }
 
-pub fn install(paths: &Paths, _config: &Config) -> Result<()> {
-    std::fs::create_dir_all(&paths.root)?;
-    let exe = std::env::current_exe()?;
-    let value = format!("\"{}\" run", exe.display());
-    let mut child = super::spawn_hidden(std::process::Command::new("reg.exe").args([
-        "add",
-        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-        "/v",
-        "Whispertype",
-        "/t",
-        "REG_SZ",
-        "/d",
-        &value,
-        "/f",
-    ]))?;
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+
+pub fn startup_enabled() -> Result<bool> {
+    unsafe { startup_value_exists(RUN_KEY) }
+}
+
+unsafe fn startup_value_exists(path: &str) -> Result<bool> {
+    let mut bytes = 0;
+    let status = RegGetValueW(
+        HKEY_CURRENT_USER,
+        wide(path).as_ptr(),
+        wide("Whispertype").as_ptr(),
+        RRF_RT_REG_SZ,
+        null_mut(),
+        null_mut(),
+        &mut bytes,
+    );
+    if status == ERROR_FILE_NOT_FOUND || status == ERROR_PATH_NOT_FOUND {
+        return Ok(false);
+    }
     ensure!(
-        child.wait()?.success(),
-        "Could not install Windows startup entry"
+        status == ERROR_SUCCESS,
+        "Could not read startup registration: {}",
+        std::io::Error::from_raw_os_error(status as i32)
+    );
+    Ok(bytes > 2)
+}
+
+pub fn set_startup(enabled: bool) -> Result<()> {
+    let value = format!("\"{}\" run", std::env::current_exe()?.display());
+    unsafe { write_startup_value(RUN_KEY, enabled.then_some(value.as_str())) }
+}
+
+unsafe fn write_startup_value(path: &str, command: Option<&str>) -> Result<()> {
+    let mut key = null_mut();
+    let status = RegCreateKeyExW(
+        HKEY_CURRENT_USER,
+        wide(path).as_ptr(),
+        0,
+        null(),
+        REG_OPTION_NON_VOLATILE,
+        KEY_SET_VALUE,
+        null(),
+        &mut key,
+        null_mut(),
+    );
+    ensure!(
+        status == ERROR_SUCCESS,
+        "Could not open startup registration: {}",
+        std::io::Error::from_raw_os_error(status as i32)
+    );
+    let status = if let Some(command) = command {
+        let value = wide(command);
+        RegSetValueExW(
+            key,
+            wide("Whispertype").as_ptr(),
+            0,
+            REG_SZ,
+            value.as_ptr() as *const u8,
+            (value.len() * size_of::<u16>()) as u32,
+        )
+    } else {
+        RegDeleteValueW(key, wide("Whispertype").as_ptr())
+    };
+    RegCloseKey(key);
+    ensure!(
+        status == ERROR_SUCCESS || command.is_none() && status == ERROR_FILE_NOT_FOUND,
+        "Could not change startup registration: {}",
+        std::io::Error::from_raw_os_error(status as i32)
     );
     Ok(())
+}
+
+pub fn install(paths: &Paths, _config: &Config) -> Result<()> {
+    std::fs::create_dir_all(&paths.root)?;
+    set_startup(true)
 }
 
 #[cfg(test)]

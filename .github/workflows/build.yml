@@ -45,6 +45,7 @@ jobs:
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
           cargo build --release --locked
+          python scripts/test_startup_linux.py
           python scripts/test_package.py
           python scripts/test_release.py
           python scripts/package.py --platform linux

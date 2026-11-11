@@ -9,6 +9,7 @@ Native Rust voice typing for **Windows 10/11 x64** and **Linux / Hyprland on Way
 - Change the shortcut through **right-click tray → Shortcut → Record shortcut…**, or choose a preset. Supported keys: Space, letters, digits, F1–F24, plus Ctrl/Alt/Shift/Win.
 - Choose Automatic, Hold, or Toggle explicitly from the same menu. The top-level entry shows the current selection, for example **Activation: Hold to talk**.
 - **Check for updates** checks the latest stable GitHub release on demand and opens its download page if a newer version is available. Otherwise it reports that the app is up to date. No background update polling or automatic installation runs.
+- **Launch at startup** is a checkbox reflecting your current sign-in registration. Ticking it enables automatic launch for your user account; unticking it leaves the current session running. Windows uses the current user's Run entry, and Linux uses a systemd user service. No administrator rights are needed.
 
 Dictation is uploaded after you stop; this is not streaming transcription. Results are typed into the foreground application using Unicode input, without changing the clipboard. If the focused window changed during recording/transcription, the text is retained for manual insertion using the `whispertype paste` command. Focus protection checks windows, not individual fields within a window. Start/stop, Cancel, and Paste are omitted from the tray menu; dictation uses your shortcut or a left-click on the tray icon. Their CLI commands remain available for automation and recovery.
 
@@ -129,7 +130,7 @@ prompt = ""                      # short vocabulary/context hints
 # microphone = "USB"             # substring of input device name
 ```
 
-Commands: `run`, `init`, `press`, `release`, `start`, `stop`, `toggle`, `cancel`, `wake-on`, `wake-off`, `enroll`, `paste`, `reload`, `check-updates`, `quit`, `set-key`, `config`, `train`, `transcribe FILE.wav`. On Windows the GUI-subsystem executable writes CLI output only when handles are redirected. `init` registers sign-in startup on Windows; the installer script additionally starts it immediately.
+Commands: `run`, `init`, `press`, `release`, `start`, `stop`, `toggle`, `cancel`, `wake-on`, `wake-off`, `enroll`, `paste`, `reload`, `check-updates`, `startup-toggle`, `quit`, `set-key`, `config`, `train`, `transcribe FILE.wav`. On Windows the GUI-subsystem executable writes CLI output only when handles are redirected. `init` registers sign-in startup on Windows; the installer script additionally starts it immediately.
 
 ## Resource design and checks
 

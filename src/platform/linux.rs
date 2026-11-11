@@ -33,7 +33,12 @@ pub struct Desktop {
     indicator_state: String,
 }
 impl Desktop {
-    pub fn start(paths: &Paths, config: &Config, sender: SyncSender<Event>) -> Result<Self> {
+    pub fn start(
+        paths: &Paths,
+        config: &Config,
+        sender: SyncSender<Event>,
+        startup: bool,
+    ) -> Result<Self> {
         let socket = socket_path(paths);
         let _ = std::fs::remove_file(&socket);
         let listener = UnixListener::bind(&socket)?;
@@ -76,6 +81,7 @@ impl Desktop {
                         config: config.clone(),
                         state: "idle".into(),
                         wake: false,
+                        startup,
                     },
                     sender,
                 })
@@ -243,6 +249,17 @@ impl ksni::Tray for Tray {
             self.item("Restore ‘Hey Groq’ wake phrase", "wake-default"),
             ksni::MenuItem::Separator,
             self.item("Reload configuration", "reload"),
+            CheckmarkItem {
+                label: "Launch at startup".into(),
+                checked: self.snapshot.startup,
+                activate: Box::new(|this: &mut Self| {
+                    let _ = this
+                        .sender
+                        .try_send(Event::Command("startup-toggle".into()));
+                }),
+                ..Default::default()
+            }
+            .into(),
             self.item("Check for updates", "check-updates"),
             self.item("Quit", "quit"),
         ]
@@ -415,6 +432,37 @@ pub fn install(paths: &Paths, config: &Config) -> Result<()> {
         }
     }
     set_shortcut(paths, config)?;
+    set_startup(true)?;
+    ensure!(
+        Command::new("systemctl")
+            .args(["--user", "start", "whispertype.service"])
+            .status()?
+            .success(),
+        "Service start failed"
+    );
+    Ok(())
+}
+
+pub fn startup_enabled() -> Result<bool> {
+    let result = Command::new("systemctl")
+        .args(["--user", "is-enabled", "whispertype.service"])
+        .stdin(Stdio::null())
+        .output()?;
+    Ok(result.status.success() && String::from_utf8_lossy(&result.stdout).trim() == "enabled")
+}
+
+pub fn set_startup(enabled: bool) -> Result<()> {
+    if !enabled {
+        ensure!(
+            Command::new("systemctl")
+                .args(["--user", "disable", "whispertype.service"])
+                .status()?
+                .success(),
+            "Could not disable sign-in startup"
+        );
+        return Ok(());
+    }
+    let home = directories::BaseDirs::new().context("No home directory")?;
     let units = home.config_dir().join("systemd/user");
     std::fs::create_dir_all(&units)?;
     let exe = std::env::current_exe()?
@@ -432,7 +480,7 @@ pub fn install(paths: &Paths, config: &Config) -> Result<()> {
     );
     ensure!(
         Command::new("systemctl")
-            .args(["--user", "enable", "--now", "whispertype.service"])
+            .args(["--user", "enable", "whispertype.service"])
             .status()?
             .success(),
         "Service installation failed"

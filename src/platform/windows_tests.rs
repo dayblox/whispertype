@@ -2,6 +2,75 @@ use super::*;
 use std::{sync::mpsc, time::Instant};
 
 #[test]
+fn startup_registration_can_be_toggled_without_touching_other_entries() {
+    struct TestKey(String);
+    impl Drop for TestKey {
+        fn drop(&mut self) {
+            unsafe {
+                RegDeleteKeyW(HKEY_CURRENT_USER, wide(&self.0).as_ptr());
+            }
+        }
+    }
+    unsafe {
+        let temp = tempfile::tempdir().unwrap();
+        // Test the same native registry operations in an isolated scratch key,
+        // leaving the user's real Run key and installed app untouched.
+        let key = TestKey(format!(
+            r"Software\WhispertypeTests-{}",
+            temp.path().file_name().unwrap().to_string_lossy()
+        ));
+        assert!(!startup_value_exists(&key.0).unwrap());
+        write_startup_value(
+            &key.0,
+            Some(r#""C:\Program Files\Whispertype\whispertype.exe" run"#),
+        )
+        .unwrap();
+        assert!(startup_value_exists(&key.0).unwrap());
+        let mut handle = null_mut();
+        assert_eq!(
+            RegOpenKeyExW(
+                HKEY_CURRENT_USER,
+                wide(&key.0).as_ptr(),
+                0,
+                KEY_SET_VALUE,
+                &mut handle
+            ),
+            ERROR_SUCCESS
+        );
+        let other = wide("another startup command");
+        assert_eq!(
+            RegSetValueExW(
+                handle,
+                wide("OtherApp").as_ptr(),
+                0,
+                REG_SZ,
+                other.as_ptr() as *const u8,
+                (other.len() * size_of::<u16>()) as u32
+            ),
+            ERROR_SUCCESS
+        );
+        RegCloseKey(handle);
+        write_startup_value(&key.0, None).unwrap();
+        assert!(!startup_value_exists(&key.0).unwrap());
+        write_startup_value(&key.0, None).unwrap();
+        let mut bytes = 0;
+        assert_eq!(
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                wide(&key.0).as_ptr(),
+                wide("OtherApp").as_ptr(),
+                RRF_RT_REG_SZ,
+                null_mut(),
+                null_mut(),
+                &mut bytes
+            ),
+            ERROR_SUCCESS
+        );
+        assert!(bytes > 2);
+    }
+}
+
+#[test]
 fn native_menu_shows_selected_activation_and_only_requested_actions() {
     unsafe {
         for mode in [
@@ -16,6 +85,7 @@ fn native_menu_shows_selected_activation_and_only_requested_actions() {
                 },
                 state: "idle".into(),
                 wake: false,
+                startup: mode == crate::activation::Mode::Hold,
             };
             let menu = create_menu(&snapshot);
             assert!(!menu.is_null());
@@ -34,6 +104,11 @@ fn native_menu_shows_selected_activation_and_only_requested_actions() {
                 .collect();
             assert!(labels.contains(&format!("Activation: {}", mode.label())));
             assert!(labels.contains(&"Check for updates".to_string()));
+            assert!(labels.contains(&"Launch at startup".to_string()));
+            assert_eq!(
+                GetMenuState(menu, 43, MF_BYCOMMAND) & MF_CHECKED != 0,
+                snapshot.startup
+            );
             for removed in ["Start / stop dictation", "Cancel", "Paste last transcript"] {
                 assert!(!labels.iter().any(|label| label == removed));
             }
@@ -141,7 +216,7 @@ fn windows_desktop_smoke() {
             ..Config::default()
         };
         let (tx, rx) = mpsc::sync_channel(64);
-        let desktop = Desktop::start(&paths, &config, tx).unwrap();
+        let desktop = Desktop::start(&paths, &config, tx, false).unwrap();
         let window = TestWindow(CreateWindowExW(
             0,
             wide("EDIT").as_ptr(),
@@ -185,6 +260,7 @@ fn windows_desktop_smoke() {
                 config: config.clone(),
                 state: state.into(),
                 wake: false,
+                startup: false,
             });
             // Execute the current snapshot synchronously so every state is
             // checked even when updates arrive faster than the tray loop.

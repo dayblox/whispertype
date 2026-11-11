@@ -28,6 +28,7 @@ pub enum Event {
     Fault(String),
     Result(u64, Transcript),
     Shortcut(String),
+    Startup(Result<bool, String>),
 }
 #[derive(Serialize, Deserialize)]
 pub struct Transcript {
@@ -39,6 +40,7 @@ pub struct Snapshot {
     pub config: Config,
     pub state: String,
     pub wake: bool,
+    pub startup: bool,
 }
 pub fn valid_command(s: &str) -> bool {
     matches!(
@@ -55,6 +57,7 @@ pub fn valid_command(s: &str) -> bool {
             | "paste"
             | "reload"
             | "check-updates"
+            | "startup-toggle"
             | "quit"
     )
 }
@@ -94,6 +97,8 @@ struct Engine {
     enrollment: Option<Enrollment>,
     desktop: platform::Desktop,
     state: String,
+    startup: bool,
+    startup_changing: bool,
 }
 
 pub fn run(paths: Paths) -> Result<()> {
@@ -112,7 +117,8 @@ pub fn run(paths: Paths) -> Result<()> {
         config.save(&paths)?;
     }
     let (sender, receiver) = mpsc::sync_channel(64);
-    let desktop = platform::Desktop::start(&paths, &config, sender.clone())?;
+    let startup = platform::startup_enabled().unwrap_or(false);
+    let desktop = platform::Desktop::start(&paths, &config, sender.clone(), startup)?;
     let wake = config.wake_enabled;
     let mut app = Engine {
         paths,
@@ -128,6 +134,8 @@ pub fn run(paths: Paths) -> Result<()> {
         enrollment: None,
         desktop,
         state: "idle".into(),
+        startup,
+        startup_changing: false,
     };
     if wake {
         if let Err(e) = app.set_wake(true) {
@@ -141,34 +149,46 @@ pub fn run(paths: Paths) -> Result<()> {
         } else {
             Duration::from_secs(86400 * 365)
         });
-        let result =
-            match event {
-                Ok(Event::Command(command)) if command == "quit" => break,
-                Ok(Event::Command(command)) => app.command(&command),
-                Ok(Event::Key { down, at }) => {
-                    app.command_at(if down { "press" } else { "release" }, at)
+        let result = match event {
+            Ok(Event::Command(command)) if command == "quit" => break,
+            Ok(Event::Command(command)) => app.command(&command),
+            Ok(Event::Key { down, at }) => {
+                app.command_at(if down { "press" } else { "release" }, at)
+            }
+            Ok(Event::Audio(samples)) => app.audio(samples),
+            Ok(Event::Fault(message)) => {
+                app.wake = false;
+                app.config.wake_enabled = false;
+                app.cancel();
+                app.error(&message);
+                Ok(())
+            }
+            Ok(Event::Result(id, result)) => app.completed(id, result),
+            Ok(Event::Shortcut(shortcut)) => app.change_shortcut(&shortcut),
+            Ok(Event::Startup(result)) => {
+                app.startup_changing = false;
+                match result {
+                    Ok(enabled) => {
+                        app.startup = enabled;
+                        app.refresh();
+                    }
+                    Err(error) => app.error(&format!("Could not change sign-in startup: {error}")),
                 }
-                Ok(Event::Audio(samples)) => app.audio(samples),
-                Ok(Event::Fault(message)) => {
-                    app.wake = false;
-                    app.config.wake_enabled = false;
-                    app.cancel();
-                    app.error(&message);
+                Ok(())
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if app
+                    .recording
+                    .as_ref()
+                    .is_some_and(|r| r.started.elapsed().as_secs() >= app.config.max_seconds as u64)
+                {
+                    app.finish()
+                } else {
                     Ok(())
                 }
-                Ok(Event::Result(id, result)) => app.completed(id, result),
-                Ok(Event::Shortcut(shortcut)) => app.change_shortcut(&shortcut),
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    if app.recording.as_ref().is_some_and(|r| {
-                        r.started.elapsed().as_secs() >= app.config.max_seconds as u64
-                    }) {
-                        app.finish()
-                    } else {
-                        Ok(())
-                    }
-                }
-                Err(_) => break,
-            };
+            }
+            Err(_) => break,
+        };
         if let Err(err) = result {
             app.cancel();
             app.error(&format!("{err:#}"));
@@ -198,6 +218,7 @@ impl Engine {
             config: self.config.clone(),
             state: self.state.clone(),
             wake: self.wake,
+            startup: self.startup,
         });
     }
     fn error(&self, message: &str) {
@@ -401,6 +422,20 @@ impl Engine {
             "wake-on" => return self.set_wake(true),
             "wake-off" => return self.set_wake(false),
             "check-updates" => return crate::updates::start(),
+            "startup-toggle" => {
+                if !self.startup_changing {
+                    self.startup_changing = true;
+                    let next = !self.startup;
+                    let sender = self.sender.clone();
+                    std::thread::spawn(move || {
+                        let result = platform::set_startup(next)
+                            .map(|()| next)
+                            .map_err(|error| format!("{error:#}"));
+                        let _ = sender.send(Event::Startup(result));
+                    });
+                }
+                return Ok(());
+            }
             "paste" => {
                 return platform::type_text(
                     &std::fs::read_to_string(&self.paths.pending)
@@ -454,6 +489,7 @@ impl Engine {
                 return Ok(());
             }
             "reload" => {
+                self.startup = platform::startup_enabled().unwrap_or(self.startup);
                 let next = Config::load(&self.paths)?;
                 platform::set_shortcut(&self.paths, &next)?;
                 self.config = next;

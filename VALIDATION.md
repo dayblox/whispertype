@@ -7,7 +7,7 @@ not supplied during development.
 
 ## Completed checks
 
-- Native Windows x64 MSVC: **18 functional tests pass**, with three explicit
+- Native Windows x64 MSVC: **19 functional tests pass**, with three explicit
   opt-in tests (offline benchmark, interactive desktop, physical microphone).
   Packaging tests cover Windows/Linux archives, standalone outputs, repeat
   runs, checksums, and missing inputs. On Linux, a fake app verifies the
@@ -24,6 +24,10 @@ not supplied during development.
   prereleases/drafts, malformed/oversized replies, missing releases and rate
   limits. The network/TLS work runs in a short-lived helper with no idle poll.
   A live, unauthenticated GitHub API check also completed successfully.
+- Startup checkbox: native Windows checkmark states verified, with isolated
+  registry tests for enable/disable/idempotence and preservation of unrelated
+  entries. The real user's Run entry is not changed by the tests. Linux toggles
+  systemd enablement without starting/stopping the currently running session.
 - Opt-in Windows microphone check: default device opened at **48 kHz stereo**,
   passed through FFT resampling, delivered **100 PCM frames in three seconds**,
   closed cleanly, and reported no queue overflow. No audio saved/uploaded.
