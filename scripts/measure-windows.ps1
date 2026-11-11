@@ -1,11 +1,15 @@
 # Measures a disposable profile. Recordings are canceled, never submitted.
 param(
+    [string]$WakeModel = (Join-Path $env:APPDATA 'whispertype\wake.rpw'),
     [ValidateRange(5, 30)][int]$Seconds = 10,
     [string]$Output = (Join-Path $PSScriptRoot '..\benchmarks\windows-resources.json')
 )
 $ErrorActionPreference = 'Stop'
 if (Get-Process whispertype -ErrorAction SilentlyContinue) {
     throw 'Quit any running Whispertype instance before profiling.'
+}
+if (!(Test-Path -LiteralPath $WakeModel -PathType Leaf)) {
+    throw 'Record a personal wake phrase first, or supply -WakeModel pointing to your personal wake.rpw.'
 }
 $exe = (Resolve-Path (Join-Path $PSScriptRoot '..\target\release\whispertype.exe')).Path
 $profileRoot = Join-Path ([IO.Path]::GetTempPath()) ('whispertype-profile-' + [guid]::NewGuid())
@@ -19,6 +23,7 @@ try {
     $env:WHISPERTYPE_TRACE_AUDIO = '1'
     $env:GROQ_API_KEY = $null
     [IO.File]::WriteAllText((Join-Path $profileRoot 'config.toml'), "protect_focus = false`nmax_seconds = 120`n")
+    Copy-Item -LiteralPath $WakeModel -Destination (Join-Path $profileRoot 'wake.rpw')
     # Existence permits capture. This placeholder is removed before wake mode;
     # the recording is explicitly canceled well before the 120-second limit.
     [IO.File]::WriteAllText((Join-Path $profileRoot 'groq.key'), 'local-profile-no-api-key')

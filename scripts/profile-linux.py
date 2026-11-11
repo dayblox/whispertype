@@ -18,9 +18,12 @@ parser.add_argument('--binary', type=pathlib.Path, required=True)
 parser.add_argument('--mode', choices=['idle', 'record', 'wake'], default='idle')
 parser.add_argument('--seconds', type=float, default=10)
 parser.add_argument('--output', type=pathlib.Path)
+parser.add_argument('--wake-model', type=pathlib.Path, help='Personal wake.rpw required for wake profiling')
 args = parser.parse_args()
 if not 2 <= args.seconds <= 30:
     parser.error('--seconds must be 2..30')
+if args.mode == 'wake' and (args.wake_model is None or not args.wake_model.is_file()):
+    parser.error('Wake profiling requires --wake-model pointing to your personal wake.rpw')
 env = os.environ.copy()
 env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
 env.setdefault('DBUS_SESSION_BUS_ADDRESS', f"unix:path={env['XDG_RUNTIME_DIR']}/bus")
@@ -61,6 +64,8 @@ def snapshot(pid):
 with tempfile.TemporaryDirectory(prefix='whispertype-profile-') as folder:
     profile = pathlib.Path(folder)
     (profile / 'config.toml').write_text('protect_focus = false\n')
+    if args.mode == 'wake':
+        (profile / 'wake.rpw').write_bytes(args.wake_model.read_bytes())
     if args.mode == 'record':
         # Only permits opening the microphone. This invalid key is never used:
         # the explicit cancel below prevents submitting the recording.

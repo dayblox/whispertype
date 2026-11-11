@@ -51,7 +51,7 @@ cargo test --release --locked optimization_benchmark -- --ignored --nocapture --
 cargo build --release --locked
 python3 scripts/profile-linux.py --binary target/release/whispertype --mode idle --seconds 20
 python3 scripts/profile-linux.py --binary target/release/whispertype --mode record --seconds 20
-python3 scripts/profile-linux.py --binary target/release/whispertype --mode wake --seconds 20
+python3 scripts/profile-linux.py --binary target/release/whispertype --mode wake --seconds 20 --wake-model ~/.config/whispertype/wake.rpw
 ```
 
 `record` and `wake` profiling deliberately open the microphone. They use an
