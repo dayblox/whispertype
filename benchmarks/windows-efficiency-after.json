@@ -1,0 +1,296 @@
+{
+  "label": "after-v0.1.5",
+  "os": "Windows-11-10.0.26100-SP0",
+  "cpu": "Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz",
+  "logical_cpus": 8,
+  "executable_sha256": "2d8d6ed1cb0c672afdadd227299ccf9f126121f18109d8c3e780c35c083923a0",
+  "executable_bytes": 4048896,
+  "sample_seconds": 15.0,
+  "warmup_seconds": 3,
+  "trials": 3,
+  "methodology": "Same compiler/settings and common profiling hooks. Production capture/recording/detector paths; only automatic submission is suppressed. App-only, excluding Windows audio services and any other installed instance. Ambient room; no artificial working-set trimming. CPU is percent of one logical core; cycles are frequency-dependent. No audio saved or uploaded. Final comparison uses adjacent paired runs in alternating order (AB, BA, AB).",
+  "audio_trace": [
+    "Audio capture: 48000 Hz, 2 channel(s), FFT resampling\nAudio capture: 48000 Hz, 2 channel(s), FFT resampling",
+    "Audio capture: 48000 Hz, 2 channel(s), FFT resampling\nAudio capture: 48000 Hz, 2 channel(s), FFT resampling",
+    "Audio capture: 48000 Hz, 2 channel(s), FFT resampling\nAudio capture: 48000 Hz, 2 channel(s), FFT resampling"
+  ],
+  "summary": {
+    "shortcut_idle": {
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 0.0,
+      "private_bytes": 1875968.0,
+      "working_set_bytes": 11177984.0,
+      "peak_working_set_bytes": 11177984,
+      "audio_events_per_second": 0.0,
+      "handles": 160.0,
+      "cpu_range": [
+        0.0,
+        0.0
+      ]
+    },
+    "shortcut_recording": {
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 7807630.626466124,
+      "private_bytes": 3575808.0,
+      "working_set_bytes": 15974400.0,
+      "peak_working_set_bytes": 16633856,
+      "audio_events_per_second": 33.33214626449681,
+      "handles": 231.0,
+      "cpu_range": [
+        0.0,
+        0.10416295707655253
+      ]
+    },
+    "wake_listening": {
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 6120371.865196825,
+      "private_bytes": 2928640.0,
+      "working_set_bytes": 15282176.0,
+      "peak_working_set_bytes": 15331328,
+      "audio_events_per_second": 0.0,
+      "handles": 231.0,
+      "cpu_range": [
+        0.0,
+        0.7291526426308672
+      ]
+    },
+    "wake_recording": {
+      "cpu_percent_one_core": 0.20831693045822358,
+      "cycles_per_second": 7659520.23988173,
+      "private_bytes": 3547136.0,
+      "working_set_bytes": 15904768.0,
+      "peak_working_set_bytes": 16101376,
+      "audio_events_per_second": 33.332359584000585,
+      "handles": 231.0,
+      "cpu_range": [
+        0.0,
+        1.4582246664313259
+      ]
+    },
+    "idle_after_capture": {
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 21935.435966826943,
+      "private_bytes": 2486272.0,
+      "working_set_bytes": 15089664.0,
+      "peak_working_set_bytes": 15089664,
+      "audio_events_per_second": 0.0,
+      "handles": 215.0,
+      "cpu_range": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "samples": [
+    {
+      "trial": 1,
+      "state": "shortcut_idle",
+      "elapsed_seconds": 15.000324600001477,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 0.0,
+      "private_bytes": 1875968.0,
+      "working_set_bytes": 11177984.0,
+      "peak_working_set_bytes": 11177984,
+      "handles": 160.0,
+      "audio_events_per_second": 0.0,
+      "recording_capacity_bytes": 0,
+      "order_in_pair": 2
+    },
+    {
+      "trial": 1,
+      "state": "shortcut_recording",
+      "elapsed_seconds": 15.000325400000293,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 7807630.626466124,
+      "private_bytes": 3575808.0,
+      "working_set_bytes": 15982592.0,
+      "peak_working_set_bytes": 16642048,
+      "handles": 231.0,
+      "audio_events_per_second": 33.33261023790792,
+      "recording_capacity_bytes": 648000,
+      "order_in_pair": 2
+    },
+    {
+      "trial": 1,
+      "state": "wake_listening",
+      "elapsed_seconds": 15.000292799999443,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 5737951.995177267,
+      "private_bytes": 2928640.0,
+      "working_set_bytes": 15298560.0,
+      "peak_working_set_bytes": 15343616,
+      "handles": 231.0,
+      "audio_events_per_second": 0.0,
+      "recording_capacity_bytes": 0,
+      "order_in_pair": 2
+    },
+    {
+      "trial": 1,
+      "state": "wake_recording",
+      "elapsed_seconds": 15.000438200000644,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 7659520.23988173,
+      "private_bytes": 3547136.0,
+      "working_set_bytes": 15904768.0,
+      "peak_working_set_bytes": 16101376,
+      "handles": 231.0,
+      "audio_events_per_second": 33.332359584000585,
+      "recording_capacity_bytes": 648000,
+      "order_in_pair": 2
+    },
+    {
+      "trial": 1,
+      "state": "idle_after_capture",
+      "elapsed_seconds": 15.000376399999368,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 33767.15266958377,
+      "private_bytes": 2539520.0,
+      "working_set_bytes": 15118336.0,
+      "peak_working_set_bytes": 15118336,
+      "handles": 215.0,
+      "audio_events_per_second": 0.0,
+      "recording_capacity_bytes": 0,
+      "order_in_pair": 2
+    },
+    {
+      "trial": 2,
+      "state": "shortcut_idle",
+      "elapsed_seconds": 15.000475600001664,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 0.0,
+      "private_bytes": 1888256.0,
+      "working_set_bytes": 11182080.0,
+      "peak_working_set_bytes": 11182080,
+      "handles": 160.0,
+      "audio_events_per_second": 0.0,
+      "recording_capacity_bytes": 0,
+      "order_in_pair": 1
+    },
+    {
+      "trial": 2,
+      "state": "shortcut_recording",
+      "elapsed_seconds": 15.00081069999942,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 7938314.96053774,
+      "private_bytes": 3575808.0,
+      "working_set_bytes": 15970304.0,
+      "peak_working_set_bytes": 16629760,
+      "handles": 231.0,
+      "audio_events_per_second": 33.33153187514188,
+      "recording_capacity_bytes": 648000,
+      "order_in_pair": 1
+    },
+    {
+      "trial": 2,
+      "state": "wake_listening",
+      "elapsed_seconds": 15.000288499999442,
+      "cpu_percent_one_core": 0.7291526426308672,
+      "cycles_per_second": 6158737.546948076,
+      "private_bytes": 2920448.0,
+      "working_set_bytes": 15282176.0,
+      "peak_working_set_bytes": 15331328,
+      "handles": 231.0,
+      "audio_events_per_second": 0.0,
+      "recording_capacity_bytes": 0,
+      "order_in_pair": 1
+    },
+    {
+      "trial": 2,
+      "state": "wake_recording",
+      "elapsed_seconds": 15.00111779999861,
+      "cpu_percent_one_core": 1.4582246664313259,
+      "cycles_per_second": 7936208.59373633,
+      "private_bytes": 3538944.0,
+      "working_set_bytes": 15904768.0,
+      "peak_working_set_bytes": 16101376,
+      "handles": 231.0,
+      "audio_events_per_second": 33.330849518430306,
+      "recording_capacity_bytes": 648000,
+      "order_in_pair": 1
+    },
+    {
+      "trial": 2,
+      "state": "idle_after_capture",
+      "elapsed_seconds": 15.000385699997423,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 21935.435966826943,
+      "private_bytes": 2486272.0,
+      "working_set_bytes": 15089664.0,
+      "peak_working_set_bytes": 15089664,
+      "handles": 215.0,
+      "audio_events_per_second": 0.0,
+      "recording_capacity_bytes": 0,
+      "order_in_pair": 1
+    },
+    {
+      "trial": 3,
+      "state": "shortcut_idle",
+      "elapsed_seconds": 15.00034130000131,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 0.0,
+      "private_bytes": 1875968.0,
+      "working_set_bytes": 11173888.0,
+      "peak_working_set_bytes": 11173888,
+      "handles": 160.0,
+      "audio_events_per_second": 0.0,
+      "recording_capacity_bytes": 0,
+      "order_in_pair": 2
+    },
+    {
+      "trial": 3,
+      "state": "shortcut_recording",
+      "elapsed_seconds": 15.000534200000402,
+      "cpu_percent_one_core": 0.10416295707655253,
+      "cycles_per_second": 7530475.814654453,
+      "private_bytes": 3579904.0,
+      "working_set_bytes": 15974400.0,
+      "peak_working_set_bytes": 16633856,
+      "handles": 231.0,
+      "audio_events_per_second": 33.33214626449681,
+      "recording_capacity_bytes": 648000,
+      "order_in_pair": 2
+    },
+    {
+      "trial": 3,
+      "state": "wake_listening",
+      "elapsed_seconds": 15.000500300000567,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 6120371.865196825,
+      "private_bytes": 2932736.0,
+      "working_set_bytes": 15273984.0,
+      "peak_working_set_bytes": 15319040,
+      "handles": 231.0,
+      "audio_events_per_second": 0.0,
+      "recording_capacity_bytes": 0,
+      "order_in_pair": 2
+    },
+    {
+      "trial": 3,
+      "state": "wake_recording",
+      "elapsed_seconds": 15.001181100000395,
+      "cpu_percent_one_core": 0.20831693045822358,
+      "cycles_per_second": 7608384.915771532,
+      "private_bytes": 3551232.0,
+      "working_set_bytes": 15929344.0,
+      "peak_working_set_bytes": 16171008,
+      "handles": 231.0,
+      "audio_events_per_second": 33.3973702910624,
+      "recording_capacity_bytes": 648000,
+      "order_in_pair": 2
+    },
+    {
+      "trial": 3,
+      "state": "idle_after_capture",
+      "elapsed_seconds": 15.000415099999373,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 0.0,
+      "private_bytes": 2453504.0,
+      "working_set_bytes": 15069184.0,
+      "peak_working_set_bytes": 15069184,
+      "handles": 215.0,
+      "audio_events_per_second": 0.0,
+      "recording_capacity_bytes": 0,
+      "order_in_pair": 2
+    }
+  ]
+}

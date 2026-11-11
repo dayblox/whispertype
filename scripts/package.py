@@ -25,7 +25,7 @@ def package(platform, binary, output):
             shutil.copy2(ROOT / filename, folder / filename)
         (folder / 'benchmarks').mkdir()
         for source in sorted((ROOT / 'benchmarks').iterdir()):
-            if source.suffix in ('.json', '.html'):
+            if source.suffix in ('.json', '.html', '.md', '.patch'):
                 shutil.copy2(source, folder / 'benchmarks' / source.name)
         shutil.copy2(binary, folder / ('whispertype.exe' if platform == 'windows' else 'whispertype'))
         if platform == 'windows':

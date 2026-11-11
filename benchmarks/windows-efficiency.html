@@ -1,0 +1,85 @@
+<style>
+  #whisper-efficiency { color: var(--foreground, CanvasText); font-family: var(--font-sans, system-ui); }
+  #whisper-efficiency figure { margin: 0 0 20px; }
+  #whisper-efficiency h3 { margin: 0 0 8px; font-weight: 500; }
+  #whisper-efficiency .legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 16px; }
+  #whisper-efficiency .legend button { background: transparent; color: inherit; border: 0; padding: 4px 0; font: inherit; }
+  #whisper-efficiency .legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; }
+  #whisper-efficiency .legend [aria-pressed="false"] { opacity: .45; }
+  #whisper-efficiency .plot { display: block; width: 100%; }
+  #whisper-efficiency .plot text { fill: var(--foreground, CanvasText); font-size: 12px; }
+  #whisper-efficiency .note { color: var(--muted-foreground, GrayText); margin: 0 0 12px; }
+  #whisper-efficiency .before { fill: var(--chart-2, Highlight); }
+  #whisper-efficiency .after { fill: var(--chart-1, LinkText); }
+</style>
+<div id="whisper-efficiency">
+  <div class="legend" aria-label="Compared builds">
+    <button type="button" data-series="before" aria-pressed="true"><i style="background:var(--chart-2, Highlight)"></i>v0.1.4</button>
+    <button type="button" data-series="after" aria-pressed="true"><i style="background:var(--chart-1, LinkText)"></i>v0.1.5</button>
+  </div>
+  <figure><h3>CPU work while the app runs</h3><p class="note">Windows 11 · i7-9700K · 48 kHz stereo microphone</p><svg class="plot" data-metric="cycles" role="img" aria-label="Before and after app CPU cycles, median with trial ranges"></svg></figure>
+  <figure><h3>Private committed memory</h3><svg class="plot" data-metric="memory" role="img" aria-label="Before and after private memory in each operating mode"></svg></figure>
+  <figure><h3>Wake recognition on identical audio</h3><svg class="plot" data-metric="dsp" role="img" aria-label="Wake-processing time on other speech and the personal phrase"></svg></figure>
+  <p class="note">App: median of 3 paired trials × 15 s/state; whiskers show trial ranges. Recognition: median of 5 runs. Lower is better. Driver services are excluded.</p>
+</div>
+<script id="whisper-efficiency-data" type="application/json">{"cycles":[{"label":"Shortcut idle","before":0.0,"beforeRange":[0.0,0.0],"after":0.0,"afterRange":[0.0,0.0]},{"label":"Shortcut record","before":7.787365965901176,"beforeRange":[7.778073173683787,7.932849353103855],"after":7.807630626466124,"afterRange":[7.530475814654452,7.93831496053774]},{"label":"Wake idle","before":7.561888020486295,"beforeRange":[7.552516747935848,7.630001227619377],"after":6.120371865196825,"afterRange":[5.7379519951772675,6.1587375469480765]},{"label":"Wake record","before":7.907195383272383,"beforeRange":[7.759202732583651,8.005158135702839],"after":7.65952023988173,"afterRange":[7.6083849157715315,7.93620859373633]},{"label":"Idle after mic","before":0.0,"beforeRange":[0.0,0.0],"after":0.02193543596682694,"afterRange":[0.0,0.033767152669583765]}],"memory":[{"label":"Shortcut idle","before":1.79296875,"after":1.7890625},{"label":"Shortcut record","before":3.4453125,"after":3.41015625},{"label":"Wake idle","before":2.828125,"after":2.79296875},{"label":"Wake record","before":3.41796875,"after":3.3828125},{"label":"Idle after mic","before":2.4609375,"after":2.37109375}],"dsp":[{"label":"Other speech","before":369.82038043478263,"after":110.09934782608697},{"label":"Personal phrase","before":179.3639400921659,"after":54.89380760368664}]}</script>
+<script>
+(() => {
+  const root = document.getElementById('whisper-efficiency');
+  const data = JSON.parse(document.getElementById('whisper-efficiency-data').textContent);
+  const enabled = {before:true, after:true};
+  const ns = 'http://www.w3.org/2000/svg';
+  const create = (parent, tag, attrs, label) => {
+    const node = document.createElementNS(ns, tag);
+    Object.entries(attrs).forEach(([key,value]) => node.setAttribute(key,value));
+    if (label !== undefined) node.textContent = label;
+    parent.appendChild(node);
+    return node;
+  };
+  function draw(svg) {
+    const metric = svg.dataset.metric;
+    const rows = data[metric];
+    const width = Math.max(300, svg.getBoundingClientRect().width);
+    const left = width < 430 ? 112 : 142, right = width - 54;
+    const top = 18, bottom = top + rows.length * 43, height = bottom + 53;
+    const maximum = Math.max(...rows.flatMap(row => ['before','after'].map(side => Math.max(row[side],...(row[side+'Range']||[]))))) * 1.08 || 1;
+    const x = value => left + value / maximum * (right-left);
+    svg.replaceChildren();
+    svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
+    svg.setAttribute('height',height);
+    create(svg,'rect',{x:left,y:top,width:right-left,height:bottom-top,fill:'none',stroke:'var(--border, GrayText)','data-chart-frame':''});
+    [0,1,2,3].forEach(index => {
+      const value = maximum * index/3, px = x(value);
+      if (index) create(svg,'line',{x1:px,x2:px,y1:top,y2:bottom,stroke:'var(--border, GrayText)','stroke-opacity':.5});
+      create(svg,'text',{x:px,y:bottom+18,'text-anchor':'middle'},value < 10 ? value.toFixed(1) : Math.round(value));
+    });
+    rows.forEach((row,index) => {
+      const y = top + index * 43 + 20;
+      create(svg,'text',{x:left-10,y:y+3,'text-anchor':'end'},row.label);
+      ['before','after'].forEach((side,position) => {
+        if (!enabled[side]) return;
+        const cy = y - 8 + position*16, value = row[side];
+        create(svg,'rect',{x:left,y:cy-5,width:x(value)-left,height:10,class:side});
+        const range = row[side+'Range'];
+        if (range) {
+          create(svg,'line',{x1:x(range[0]),x2:x(range[1]),y1:cy,y2:cy,stroke:'var(--foreground, CanvasText)'});
+          range.forEach(v => create(svg,'line',{x1:x(v),x2:x(v),y1:cy-4,y2:cy+4,stroke:'var(--foreground, CanvasText)'}));
+        }
+        const labelX = Math.max(x(value),range ? x(range[1]) : 0)+6;
+        create(svg,'text',{x:labelX,y:cy+4},value === 0 ? '0' : value.toFixed(metric==='dsp'?1:2));
+      });
+    });
+    create(svg,'text',{x:(left+right)/2,y:height-7,'text-anchor':'middle',class:'axis-title','data-axis':'x'},
+      metric==='cycles' ? 'Million CPU cycles / second' : metric==='memory' ? 'Private memory (MiB)' : 'Processing time (µs / audio frame)');
+    create(svg,'text',{x:8,y:12,class:'axis-title','data-axis':'y'},metric==='dsp'?'Audio':'Mode');
+  }
+  function redraw() { root.querySelectorAll('.plot').forEach(draw); }
+  root.querySelectorAll('button[data-series]').forEach(button => button.addEventListener('click',() => {
+    enabled[button.dataset.series] = !enabled[button.dataset.series];
+    button.setAttribute('aria-pressed',String(enabled[button.dataset.series]));
+    redraw();
+  }));
+  new ResizeObserver(redraw).observe(root);
+  redraw();
+})();
+</script>

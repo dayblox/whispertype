@@ -18,6 +18,16 @@ a wake model. Normal listening retains the existing energy gate; the extra
 score probe exists only during an explicit eight-second local phrase test.
 There is no periodic microphone sampling or calibration task at idle.
 
+v0.1.5 caches MFCC FFT plans, DCT weights and matching workspaces, borrows
+feature windows, and replaces full DTW matrices with two reusable rows.
+The upstream extraction and terminal-cell arithmetic are checked for exact
+compatibility. Quiet wake frames are suppressed before engine delivery;
+recording keeps a direct, ungated PCM path. CPAL streams are owned by the
+engine, and wake cancellation/model reuse avoids repeated setup work.
+Shortcut recordings omit the silence scan used only for wake auto-stop.
+See `benchmarks/windows-efficiency.md` for the paired Windows comparison,
+same-audio benchmarks, allocation counts, raw data and reproduction commands.
+
 ## Implemented
 
 - Prefer supported **mono 16 kHz** microphone input, with default-format
@@ -91,9 +101,9 @@ Native Windows build, desktop, microphone, and release allocation benchmarks
 now pass. Reproduce with `scripts/build-windows.ps1 -Benchmark -DesktopTests
 -MicrophoneTest`. Profile the release app with `scripts/measure-windows.ps1`;
 this opens the microphone in a disposable profile and cancels all recordings.
-See `benchmarks/windows-resources.json` and `VALIDATION.md` for the hardware
-sample and its limits. No new whole-app before/after reduction is claimed for
-the small Windows changes. A live Groq upload was not measured because no API
+See `benchmarks/windows-resources.json` and `VALIDATION.md` for the historical
+hardware sample and its limits; the v0.1.5 paired comparison is in
+`benchmarks/windows-efficiency.md`. A live Groq upload was not measured because no API
 key was supplied. Synthetic wake references are retained only as test fixtures; production
 requires personal enrollment and wake listening starts off each launch. This is a
 measured optimization pass, not proof of a theoretical resource minimum.

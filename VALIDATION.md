@@ -7,6 +7,17 @@ not supplied during development.
 
 ## Completed checks
 
+- v0.1.5: **30 Windows functional tests pass**, with four opt-in tests;
+  two vendored MFCC/DTW equivalence tests also pass in debug and release.
+  The retained original extractor verifies bit-identical features across
+  sizes and resets, and the original matrix DTW checks identical terminal
+  costs. New regressions preserve recording PCM, quiet pre-roll/hangover,
+  and detection frame positions after long pauses. Capture conversion,
+  both delivery modes and bounded-channel transfer allocate zero times in
+  their warmed checks. The private voice replay still recognizes three
+  repeats with the identical best score/target and rejects the silent control.
+  See `benchmarks/windows-efficiency.md` for matched v0.1.4/v0.1.5 resource
+  measurements, including their sampling and app-only limits.
 - v0.1.4: native Windows raster checks cover the entire button rectangle,
   including enabled/disabled rounded corners, client bounds, and the prompt
   editor. Captures use actual Win32 controls rendered off-screen, not HTML
@@ -38,7 +49,7 @@ not supplied during development.
 - Windows builds contain icon and group-icon resources, and the Windows shell
   can extract the icon. Inno Setup and Start Menu shortcuts use the embedded icon.
 
-- Native Windows x64 MSVC: **28 functional tests pass**, with three explicit
+- Native Windows x64 MSVC v0.1.4: **28 functional tests pass**, with three explicit
   opt-in tests (offline benchmark, interactive desktop, physical microphone).
   Packaging tests cover Windows/Linux archives, standalone outputs, repeat
   runs, checksums, and missing inputs. On Linux, a fake app verifies the

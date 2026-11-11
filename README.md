@@ -105,6 +105,12 @@ whispertype reload
 
 Wake listening uses Rustpotter MFCC/DTW matching, with a quiet-input gate, 240 ms pre-roll and approximately two seconds of hangover. It needs a continuously open microphone while enabled and uses more CPU than shortcut mode. There is no paid wake service, downloaded neural model or Python runtime requirement.
 
+v0.1.5 reuses FFT/matching buffers and suppresses quiet frames before waking
+the engine. Shortcut idle keeps the microphone closed; wake inference pauses
+during recording in both modes. The [Windows efficiency report](benchmarks/windows-efficiency.md)
+compares CPU work, private memory and allocations against v0.1.4, with raw
+measurements and reproduction commands.
+
 ## Prompt, feedback and reloading
 
 **Transcription prompt...** opens a small editor. Enter concise vocabulary, names, spelling or context hints in the language you dictate; this is not a chat/system instruction. Save applies the value immediately to future uploads and stores it in `config.toml`. Clear the field and Save to disable it. The app bounds it to 1024 UTF-8 bytes; Groq documents a 224-token prompt limit. See [Groq prompting guidance](https://console.groq.com/docs/speech-to-text). Linux uses `zenity` for this optional editor.

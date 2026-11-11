@@ -1,0 +1,2 @@
+# Unified-diff context prefixes intentionally end otherwise blank lines.
+benchmarks/*.patch text eol=lf -whitespace
