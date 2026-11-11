@@ -4,17 +4,24 @@ use std::{
     io::Read,
     process::{Command, Stdio},
     sync::atomic::{AtomicBool, Ordering},
+    sync::mpsc::SyncSender,
     time::Duration,
 };
 
 const ENDPOINT: &str = "https://api.github.com/repos/dayblox/whisper/releases/latest";
 const LIMIT: u64 = 64_000;
 static CHECKING: AtomicBool = AtomicBool::new(false);
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+pub use windows::{apply, cleanup, Prepared};
 
 #[derive(Serialize, Deserialize)]
 pub struct Reply {
     pub newer_version: Option<String>,
     pub error: Option<String>,
+    #[cfg(windows)]
+    pub staged: Option<std::path::PathBuf>,
 }
 
 #[derive(Deserialize)]
@@ -22,9 +29,21 @@ struct Release {
     tag_name: String,
     draft: bool,
     prerelease: bool,
+    #[cfg(windows)]
+    #[serde(default)]
+    assets: Vec<Asset>,
 }
 
-fn fetch(endpoint: &str, current: &str) -> Result<Option<String>> {
+#[cfg(windows)]
+#[derive(Deserialize)]
+struct Asset {
+    name: String,
+    browser_download_url: String,
+    size: u64,
+    digest: Option<String>,
+}
+
+fn fetch(endpoint: &str, current: &str) -> Result<Option<Release>> {
     let response = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(5))
         .timeout(Duration::from_secs(10))
@@ -64,24 +83,46 @@ fn fetch(endpoint: &str, current: &str) -> Result<Option<String>> {
     )
     .context("Unrecognized release version")?;
     ensure!(latest.pre.is_empty(), "No stable release is available");
-    Ok((latest > semver::Version::parse(current)?).then(|| latest.to_string()))
+    Ok((latest > semver::Version::parse(current)?).then_some(release))
 }
 
 // TLS and HTTP allocations live in this short-lived worker, not the idle tray.
 pub fn check() -> Reply {
     match fetch(ENDPOINT, env!("CARGO_PKG_VERSION")) {
-        Ok(newer_version) => Reply {
-            newer_version,
-            error: None,
-        },
+        Ok(release) => {
+            let reply = Reply {
+                newer_version: release
+                    .as_ref()
+                    .map(|r| r.tag_name.trim_start_matches('v').to_string()),
+                error: None,
+                #[cfg(windows)]
+                staged: None,
+            };
+            #[cfg(windows)]
+            let reply = {
+                let mut reply = reply;
+                if let Some(release) = release {
+                    match windows::prepare(&release) {
+                        Ok(staged) => reply.staged = Some(staged),
+                        Err(error) => reply.error = Some(format!("{error:#}")),
+                    }
+                }
+                reply
+            };
+            reply
+        }
         Err(error) => Reply {
             newer_version: None,
             error: Some(format!("{error:#}")),
+            #[cfg(windows)]
+            staged: None,
         },
     }
 }
 
-pub fn start() -> Result<()> {
+pub fn start(sender: SyncSender<crate::engine::Event>) -> Result<()> {
+    #[cfg(not(windows))]
+    let _ = sender;
     let exe = std::env::current_exe()?;
     if CHECKING.swap(true, Ordering::Relaxed) {
         return Ok(());
@@ -119,7 +160,21 @@ pub fn start() -> Result<()> {
             );
             Ok(serde_json::from_slice(&data)?)
         })();
+        #[cfg(windows)]
+        if let Ok(reply) = &result {
+            if let Some(staged) = &reply.staged {
+                let update = Prepared::new(staged.clone());
+                crate::platform::update_notification("Update downloaded and verified. Whispertype will restart when dictation is idle.");
+                // Keep CHECKING set until the engine installs or rejects this update.
+                let _ = sender.send(crate::engine::Event::UpdateReady(update));
+                return;
+            }
+        }
         let message = match result {
+            Ok(Reply { newer_version: Some(version), error: Some(error), .. }) => {
+                let _ = crate::platform::open_releases();
+                format!("Whispertype {version} is available. Automatic update failed: {error}. Download it from the release page.")
+            }
             Ok(Reply { error: Some(error), .. }) => format!("Update check failed: {error}"),
             Ok(Reply { newer_version: Some(version), .. }) => {
                 match crate::platform::open_releases() {

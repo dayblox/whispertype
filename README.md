@@ -8,7 +8,7 @@ Native Rust voice typing for **Windows 10/11 x64** and **Linux / Hyprland on Way
 - Hold longer than 250 ms, then release to submit.
 - Change the shortcut through **right-click tray → Shortcut → Record shortcut…**, or choose a preset. Supported keys: Space, letters, digits, F1–F24, plus Ctrl/Alt/Shift/Win.
 - Choose Automatic, Hold, or Toggle explicitly from the same menu. The top-level entry shows the current selection, for example **Activation: Hold to talk**.
-- **Check for updates** checks the latest stable GitHub release on demand and opens its download page if a newer version is available. Otherwise it reports that the app is up to date. No background update polling or automatic installation runs.
+- **Check for updates** checks the latest stable GitHub release on demand. On Windows x64 it downloads and verifies the newer executable, then installs and restarts once dictation and open prompt editing are finished. Installed and portable copies keep their existing location, settings, key, and startup registration. If automatic installation is unavailable (for example, the folder is read-only), it opens the download page instead. Linux opens the download page. There is no background update polling.
 - **Launch at startup** is a checkbox reflecting your current sign-in registration. Ticking it enables automatic launch for your user account; unticking it leaves the current session running. Windows uses the current user's Run entry, and Linux uses a systemd user service. No administrator rights are needed.
 
 Dictation is uploaded after you stop; this is not streaming transcription. Completed text is sent as Unicode keystrokes to whatever is active when transcription finishes, without changing the clipboard. Whispertype does not inspect input fields, remember the original window, or require a focused text field. Both left- and right-clicking the tray icon open its menu; use the shortcut for dictation. Start/stop, Cancel, and Paste remain available as CLI commands for automation and recovery.
@@ -128,6 +128,8 @@ measurements and reproduction commands.
 ## Prompt, feedback and reloading
 
 **Transcription prompt...** opens a small editor. Enter concise vocabulary, names, spelling or context hints in the language you dictate; this is not a chat/system instruction. Save applies the value immediately to future uploads and stores it in `config.toml`. Clear the field and Save to disable it. The app bounds it to 1024 UTF-8 bytes; Groq documents a 224-token prompt limit. See [Groq prompting guidance](https://console.groq.com/docs/speech-to-text). Linux uses `zenity` for this optional editor.
+
+On Windows, Ctrl+A/C/X/V/Z select all, copy, cut, paste, and undo. Tab and Shift+Tab move between the field and buttons, Enter inserts a new line in the field, and Escape cancels without saving. Only one prompt editor opens at a time.
 
 Simple Windows feedback uses the standard Windows notification appearance. A newer message dismisses the preceding Whispertype notification; bursts within 200 ms are coalesced to the latest message rather than queued. Windows controls notification duration and quiet-mode behavior. Update checks run silently and show only their result. Phrase setup/testing and prompt editing use compact dark native forms with Segoe UI text and clear buttons. Linux replaces its previous notification by ID with a four-second requested expiry.
 

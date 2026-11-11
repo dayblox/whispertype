@@ -1,5 +1,14 @@
 # Optimization pass — November 11, 2026
 
+The standing RAM/CPU requirements for future work are in `AGENTS.md`.
+On-demand Windows updates stream to disk through one fixed 64 KiB buffer and
+reuse the existing TLS stack's SHA-256 implementation. Networking remains in
+the short-lived update helper; the tray adds no polling or timers. A staged
+update is installed at the next idle event, after dictation and prompt editing
+finish. Native prompt shortcuts run only on input events, and duplicate prompt
+editors are suppressed. See `benchmarks/windows-update-efficiency.md` for
+measurements, the allocation check and their limits.
+
 This pass keeps the tray, automatic tap/hold, optional wake phrase,
 and recording indicator. It optimizes actual processing and data
 ownership instead of shrinking the working set artificially or removing

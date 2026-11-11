@@ -7,6 +7,25 @@ not supplied during development.
 
 ## Completed checks
 
+- v0.1.7 update/form changes: **37 Windows functional tests pass**, with seven
+  opt-in checks; two vendored MFCC/DTW equivalence tests also pass. The full
+  Windows build, Clippy, native executable checks, package/release tests and
+  Inno Setup compilation pass. Native prompt checks exercise Ctrl+A selection,
+  replacement/undo, Tab focus, multiline Enter, Save with Enter, Escape and
+  Unicode Save/Cancel. Clipboard shortcuts explicitly send the native edit
+  commands; the automated suite does not replace the user's clipboard.
+  Update tests reject corrupt, truncated and oversized downloads, unexpected
+  asset URLs and missing/invalid digests, and restore the previous file when
+  replacement or process launch fails. A disposable Windows integration test
+  executes the real helper with paths containing spaces/Unicode, waits for
+  parent exit, stops lingering helpers only from the matching EXE, replaces
+  and restarts the portable copy, preserves its key/prompt, and removes staging.
+  This simulates a version replacement locally; no newer GitHub release was
+  published or installed into the user's existing installation by these local checks.
+  The release-only download allocation check retains a fixed 64 KiB stack
+  buffer and one 110-byte tracked heap allocation for both 64 KiB and 8 MiB
+  inputs (excludes HTTP/TLS and OS memory). Resource measurements and limits
+  are in `benchmarks/windows-update-efficiency.md`.
 - v0.1.6: a user-run short diagnostic in Notepad reproduced corruption with
   bulk Unicode input and once inserted the complete 17-character greeting
   with character-pair calls and no added delay. Repeated dictation in the

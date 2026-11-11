@@ -20,9 +20,12 @@ try {
     Invoke-Cargo -Arguments @('build', '--release', '--locked')
     & python scripts/verify-windows.py target/release/whispertype.exe
     if ($LASTEXITCODE -ne 0) { throw 'Windows executable validation failed' }
+    & python scripts/test_windows_update.py target/release/whispertype.exe
+    if ($LASTEXITCODE -ne 0) { throw 'Windows update helper validation failed' }
     if ($Benchmark) {
         Invoke-Cargo -Arguments @('test', '--release', '--locked', 'optimization_benchmark', '--', '--ignored', '--nocapture', '--test-threads=1')
         Invoke-Cargo -Arguments @('test', '--release', '--locked', 'unicode_insertion_benchmark', '--', '--ignored', '--nocapture', '--test-threads=1')
+        Invoke-Cargo -Arguments @('test', '--release', '--locked', 'update_download_allocations', '--', '--ignored', '--nocapture', '--test-threads=1')
     }
     if ($DesktopTests) {
         Invoke-Cargo -Arguments @('test', '--locked', 'windows_desktop_smoke', '--', '--ignored', '--nocapture', '--test-threads=1')

@@ -37,7 +37,41 @@ fn run() -> Result<()> {
         "_stop-for-upgrade" => platform::stop_for_upgrade(std::path::Path::new(
             args.get(1).context("Missing installed executable path")?,
         )),
-        "run" => engine::run(paths),
+        #[cfg(windows)]
+        "_apply-update" => {
+            let result = updates::apply(
+                std::path::Path::new(args.get(1).context("Missing update target")?),
+                args.get(2).context("Missing parent process")?.parse()?,
+            );
+            if let Err(error) = &result {
+                // There is no tray in this helper to display a notification.
+                unsafe {
+                    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+                    let message: Vec<u16> = format!("Could not install the update: {error:#}\nDownload the latest version from github.com/dayblox/whisper/releases/latest.")
+                        .encode_utf16().chain(Some(0)).collect();
+                    let title: Vec<u16> =
+                        "Whispertype update".encode_utf16().chain(Some(0)).collect();
+                    MessageBoxW(
+                        std::ptr::null_mut(),
+                        message.as_ptr(),
+                        title.as_ptr(),
+                        MB_OK | MB_ICONERROR,
+                    );
+                }
+            }
+            result
+        }
+        "run" => {
+            #[cfg(windows)]
+            if args.get(1).is_some_and(|a| a == "--updated-from") {
+                if let (Some(stage), Some(helper)) = (args.get(2), args.get(3)) {
+                    if let Ok(helper) = helper.parse() {
+                        let _ = updates::cleanup(std::path::Path::new(stage), helper);
+                    }
+                }
+            }
+            engine::run(paths)
+        }
         "_worker" => {
             let result = groq::worker(&paths);
             let reply = match result {

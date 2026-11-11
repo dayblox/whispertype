@@ -23,13 +23,18 @@ use std::{
 #[allow(clippy::large_enum_variant)]
 pub enum Event {
     Command(String),
-    Key { down: bool, at: Instant },
+    Key {
+        down: bool,
+        at: Instant,
+    },
     Audio(audio::Frame),
     Fault(String),
     Result(u64, Transcript),
     Shortcut(String),
     Startup(Result<bool, String>),
-    Prompt(String),
+    Prompt(Result<Option<String>, String>),
+    #[cfg(windows)]
+    UpdateReady(crate::updates::Prepared),
 }
 #[derive(Serialize, Deserialize)]
 pub struct Transcript {
@@ -102,6 +107,9 @@ struct Engine {
     test_detector: Option<Box<wake::Probe>>,
     profiling: bool,
     audio_events: u64,
+    prompt_editing: bool,
+    #[cfg(windows)]
+    pending_update: Option<crate::updates::Prepared>,
 }
 
 pub fn run(paths: Paths) -> Result<()> {
@@ -142,6 +150,9 @@ pub fn run(paths: Paths) -> Result<()> {
         test_detector: None,
         profiling: std::env::var_os("WHISPERTYPE_PROFILE").is_some(),
         audio_events: 0,
+        prompt_editing: false,
+        #[cfg(windows)]
+        pending_update: None,
     };
     app.refresh();
     loop {
@@ -168,18 +179,30 @@ pub fn run(paths: Paths) -> Result<()> {
             }
             Ok(Event::Result(id, result)) => app.completed(id, result),
             Ok(Event::Shortcut(shortcut)) => app.change_shortcut(&shortcut),
-            Ok(Event::Prompt(prompt)) => {
-                let mut next = app.config.clone();
-                next.prompt = prompt;
-                match next.save(&app.paths) {
-                    Ok(()) => {
-                        app.config = next;
-                        platform::notify(
-                            "Transcription prompt saved. It will be used for new uploads.",
-                        );
+            Ok(Event::Prompt(result)) => {
+                app.prompt_editing = false;
+                match result {
+                    Ok(Some(prompt)) => {
+                        let mut next = app.config.clone();
+                        next.prompt = prompt;
+                        match next.save(&app.paths) {
+                            Ok(()) => {
+                                app.config = next;
+                                platform::notify(
+                                    "Transcription prompt saved. It will be used for new uploads.",
+                                );
+                            }
+                            Err(error) => app.error(&format!("Prompt not saved: {error:#}")),
+                        }
                     }
-                    Err(error) => app.error(&format!("Prompt not saved: {error:#}")),
+                    Ok(None) => (),
+                    Err(error) => app.error(&format!("Prompt editor: {error}")),
                 }
+                Ok(())
+            }
+            #[cfg(windows)]
+            Ok(Event::UpdateReady(update)) => {
+                app.pending_update = Some(update);
                 Ok(())
             }
             Ok(Event::Startup(result)) => {
@@ -220,6 +243,21 @@ pub fn run(paths: Paths) -> Result<()> {
         if let Err(err) = result {
             app.cancel();
             app.error(&format!("{err:#}"));
+        }
+        #[cfg(windows)]
+        if app.pending_update.is_some()
+            && app.recording.is_none()
+            && app.job.is_none()
+            && !app.enrollment.as_ref().is_some_and(Enrollment::active)
+            && !app.startup_changing
+            && !app.prompt_editing
+        {
+            if let Some(update) = app.pending_update.take() {
+                match update.launch() {
+                    Ok(()) => break,
+                    Err(error) => app.error(&format!("Could not install update: {error:#}")),
+                }
+            }
         }
     }
     app.wake = false;
@@ -497,7 +535,7 @@ impl Engine {
             }
             "wake-on" => return self.set_wake(true),
             "wake-off" => return self.set_wake(false),
-            "check-updates" => return crate::updates::start(),
+            "check-updates" => return crate::updates::start(self.sender.clone()),
             "startup-toggle" => {
                 if !self.startup_changing {
                     self.startup_changing = true;
@@ -558,6 +596,10 @@ impl Engine {
                 return Ok(());
             }
             "prompt-edit" => {
+                if self.prompt_editing {
+                    return Ok(());
+                }
+                self.prompt_editing = true;
                 let sender = self.sender.clone();
                 std::thread::spawn(move || {
                     let result = (|| -> Result<Option<String>> {
@@ -571,13 +613,8 @@ impl Engine {
                         ensure!(output.status.success(), "Could not open the prompt editor");
                         Ok(serde_json::from_slice(&output.stdout)?)
                     })();
-                    match result {
-                        Ok(Some(prompt)) => {
-                            let _ = sender.send(Event::Prompt(prompt));
-                        }
-                        Ok(None) => (),
-                        Err(error) => platform::notify(&format!("Prompt editor: {error:#}")),
-                    }
+                    let _ =
+                        sender.send(Event::Prompt(result.map_err(|error| format!("{error:#}"))));
                 });
                 return Ok(());
             }

@@ -10,6 +10,7 @@ const TEST: usize = 103;
 const HEADING: usize = 104;
 // Standard STATIC/EDIT control messages (winuser.h).
 const EM_SETLIMITTEXT: u32 = 0x00c5;
+const EM_SETSEL: u32 = 0x00b1;
 #[cfg(not(test))]
 const UI_CLASS: &str = "Whispertype.Feedback.v2";
 #[cfg(test)]
@@ -238,6 +239,17 @@ unsafe extern "system" fn proc(window: HWND, msg: u32, w: WPARAM, l: LPARAM) -> 
             paint_button(&*(l as *const DRAWITEMSTRUCT));
             1
         }
+        WM_NEXTDLGCTL => {
+            let next = if l != 0 {
+                w as HWND
+            } else {
+                GetNextDlgTabItem(window, GetFocus(), (w != 0) as i32)
+            };
+            if !next.is_null() {
+                SetFocus(next);
+            }
+            0
+        }
         WM_COMMAND => {
             let command = w & 0xffff;
             if role == ENROLL_ROLE {
@@ -434,12 +446,53 @@ pub(super) unsafe fn edit_prompt(current: &str) -> Result<Option<String>> {
     SetFocus(GetDlgItem(window, TEXT));
     let mut message: MSG = zeroed();
     while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
-        if IsDialogMessageW(window, &message) == 0 {
-            TranslateMessage(&message);
-            DispatchMessageW(&message);
-        }
+        prompt_message(window, &message);
     }
     Ok(PROMPT_REPLY.with(|reply| reply.borrow_mut().take()))
+}
+
+unsafe fn prompt_message(window: HWND, message: &MSG) {
+    // Multiline EDIT requests all keys, including Escape, from IsDialogMessage.
+    if message.message == WM_KEYDOWN && message.wParam == VK_ESCAPE as usize {
+        SendMessageW(window, WM_COMMAND, CANCEL, 0);
+        return;
+    }
+    // Process edit accelerators before dialog navigation/TranslateMessage.
+    // The classic multiline EDIT does not implement Ctrl+A itself.
+    if message.message == WM_KEYDOWN
+        && message.hwnd == GetDlgItem(window, TEXT)
+        && GetKeyState(VK_CONTROL as i32) < 0
+        && GetKeyState(VK_MENU as i32) >= 0
+        && edit_shortcut(message.hwnd, message.wParam as u32)
+    {
+        return;
+    }
+    if IsDialogMessageW(window, message) == 0 {
+        TranslateMessage(message);
+        DispatchMessageW(message);
+    }
+}
+
+unsafe fn edit_shortcut(edit: HWND, key: u32) -> bool {
+    match key {
+        0x41 => {
+            SendMessageW(edit, EM_SETSEL, 0, -1);
+        }
+        0x43 => {
+            SendMessageW(edit, WM_COPY, 0, 0);
+        }
+        0x58 => {
+            SendMessageW(edit, WM_CUT, 0, 0);
+        }
+        0x56 => {
+            SendMessageW(edit, WM_PASTE, 0, 0);
+        }
+        0x5a => {
+            SendMessageW(edit, WM_UNDO, 0, 0);
+        }
+        _ => return false,
+    }
+    true
 }
 
 pub(super) unsafe fn close_all() {
@@ -632,6 +685,94 @@ mod tests {
             SendMessageW(window, WM_COMMAND, CANCEL, 0);
             assert!(PROMPT_REPLY.with(|reply| reply.borrow().is_none()));
             PeekMessageW(&mut msg, null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE);
+        }
+    }
+
+    #[test]
+    fn prompt_shortcuts_select_all_and_undo_without_inserting_control_characters() {
+        unsafe {
+            let original = "Groq, français 日本語";
+            let window = prompt_window(original).unwrap();
+            let edit = GetDlgItem(window, TEXT);
+            let mut keys = [0u8; 256];
+            assert_ne!(GetKeyboardState(keys.as_mut_ptr()), 0);
+            let mut ctrl = keys;
+            ctrl[VK_CONTROL as usize] = 0x80;
+            ctrl[VK_MENU as usize] = 0;
+            assert_ne!(SetKeyboardState(ctrl.as_ptr()), 0);
+            let message = MSG {
+                hwnd: edit,
+                message: WM_KEYDOWN,
+                wParam: 0x41,
+                ..zeroed()
+            };
+            prompt_message(window, &message);
+            SetKeyboardState(keys.as_ptr());
+            let (mut start, mut end) = (0u32, 0u32);
+            SendMessageW(
+                edit,
+                0x00b0, /* EM_GETSEL */
+                &mut start as *mut _ as usize,
+                &mut end as *mut _ as isize,
+            );
+            assert_eq!(start, 0);
+            assert_eq!(end as usize, original.encode_utf16().count());
+            SendMessageW(edit, WM_CHAR, 'X' as usize, 0);
+            assert_eq!(GetWindowTextLengthW(edit), 1);
+            assert!(edit_shortcut(edit, 0x5a));
+            let mut text = vec![0u16; original.encode_utf16().count() + 1];
+            let n = GetWindowTextW(edit, text.as_mut_ptr(), text.len() as i32);
+            assert_eq!(String::from_utf16_lossy(&text[..n as usize]), original);
+            assert!(!edit_shortcut(edit, VK_F1 as u32));
+            DestroyWindow(window);
+            let mut msg: MSG = zeroed();
+            PeekMessageW(&mut msg, null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE);
+        }
+    }
+
+    #[test]
+    fn prompt_dialog_navigation_keeps_enter_in_the_editor_and_escape_cancels() {
+        unsafe {
+            PROMPT_REPLY.with(|reply| *reply.borrow_mut() = None);
+            let window = prompt_window("Context").unwrap();
+            let edit = GetDlgItem(window, TEXT);
+            SetFocus(edit);
+            assert_eq!(GetFocus(), edit);
+            let mut message = MSG {
+                hwnd: edit,
+                message: WM_KEYDOWN,
+                wParam: VK_TAB as usize,
+                ..zeroed()
+            };
+            prompt_message(window, &message);
+            assert_eq!(GetFocus(), GetDlgItem(window, ACTION as i32));
+            // Return in a multiline prompt must not submit the form.
+            message.hwnd = edit;
+            message.wParam = VK_RETURN as usize;
+            SetFocus(edit);
+            prompt_message(window, &message);
+            assert_ne!(IsWindow(window), 0);
+            assert!(PROMPT_REPLY.with(|reply| reply.borrow().is_none()));
+            // Discard the translated Return before testing Escape.
+            let mut translated: MSG = zeroed();
+            while PeekMessageW(&mut translated, window, WM_CHAR, WM_CHAR, PM_REMOVE) != 0 {}
+            message.wParam = VK_ESCAPE as usize;
+            prompt_message(window, &message);
+            assert_eq!(IsWindow(window), 0);
+            assert!(PROMPT_REPLY.with(|reply| reply.borrow().is_none()));
+            PeekMessageW(&mut translated, null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE);
+            let window = prompt_window("Save with Enter").unwrap();
+            let save = GetDlgItem(window, ACTION as i32);
+            SetFocus(save);
+            message.hwnd = save;
+            message.wParam = VK_RETURN as usize;
+            prompt_message(window, &message);
+            assert_eq!(IsWindow(window), 0);
+            assert_eq!(
+                PROMPT_REPLY.with(|reply| reply.borrow_mut().take()),
+                Some("Save with Enter".into())
+            );
+            PeekMessageW(&mut translated, null_mut(), WM_QUIT, WM_QUIT, PM_REMOVE);
         }
     }
 }
