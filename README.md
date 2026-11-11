@@ -47,10 +47,18 @@ The script checks formatting, runs unit tests and Clippy, builds the native rele
 **Validation:** native Windows unit, microphone, and desktop smoke tests now pass. The desktop check types Unicode into its own native edit field, exercises hook transitions and IPC, and checks the indicator does not steal focus. Physical shortcut use, personal wake accuracy, application-specific typing, sign-in startup, and live Groq transcription remain manual checks. See `VALIDATION.md`.
 
 Windows v0.1.6 sends one Unicode character's key-down/up events per input call.
-This follows a live Notepad test where bulk input corrupted or dropped text,
-while character pairs inserted the complete greeting correctly. There is no
-artificial typing delay or clipboard replacement. Emoji surrogate pairs stay
-together. The receiving app still determines repaint and undo behavior.
+There is no artificial typing delay or clipboard replacement. Emoji surrogate
+pairs stay together. The receiving app still determines repaint and undo behavior.
+
+**Windows 11 Notepad compatibility:** repeated dictation in Notepad 11.2607.14.0
+still produced missing/repeated letters and literal question marks in v0.1.6,
+despite an initial successful character-pair diagnostic. The user confirmed that
+turning off both **Spell check** and **Autocorrect** in Notepad's Settings stopped
+the corruption. This implicates Notepad's proofreading/input interaction, not the
+document's UTF-8 setting; which individual feature or internal component causes it
+has not been isolated. The same user could not reproduce it in T3 Code or
+Chromium/Helium. This is a confirmed workaround on that machine, not a guarantee
+for every Notepad version. Whispertype does not change other apps' settings.
 
 ## Linux
 

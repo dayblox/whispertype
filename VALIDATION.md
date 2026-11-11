@@ -7,10 +7,17 @@ not supplied during development.
 
 ## Completed checks
 
-- v0.1.6: a user-run test in modern Notepad reproduced corruption with bulk
-  Unicode input and confirmed the complete 17-character greeting with
-  character-pair calls and no added delay. The app uses that successful
-  pattern. Protocol regressions cover the exact short and long reported
+- v0.1.6: a user-run short diagnostic in Notepad reproduced corruption with
+  bulk Unicode input and once inserted the complete 17-character greeting
+  with character-pair calls and no added delay. Repeated dictation in the
+  installed v0.1.6 still produced missing/repeated letters and question marks
+  in Notepad 11.2607.14.0. The installed binary matched the local v0.1.6 build.
+  The user then confirmed that disabling both Notepad Spell check and
+  Autocorrect stopped the corruption. The individual responsible feature and
+  exact internal cause remain unisolated. The same user could not reproduce
+  corruption in T3 Code or Chromium/Helium. Character-pair delivery alone
+  therefore does not establish reliable Notepad compatibility.
+  Protocol regressions cover the exact short and long reported
   sentences, multilingual text, combining/ZWJ sequences and surrogate pairs.
   A failed/partial submission stops further text and attempts only key-up
   cleanup, preventing an automatic duplicate retry. Ordinary Windows tests
@@ -18,8 +25,8 @@ not supplied during development.
   benchmark checks zero allocations with a simulated successful input sink;
   it does not measure Windows API/destination-app latency. Automatic live
   Notepad testing was unavailable because the Windows UI-control bridge was
-  disconnected. The user-run diagnostic supplies the live compatibility
-  observation; the new app release still needs its normal application testing.
+  disconnected. These live Notepad observations are user reports, separate
+  from the deterministic protocol tests and owned Win32 edit-field checks.
 - v0.1.5: **30 Windows functional tests pass**, with five opt-in tests;
   two vendored MFCC/DTW equivalence tests also pass in debug and release.
   The retained original extractor verifies bit-identical features across

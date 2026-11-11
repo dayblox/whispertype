@@ -30,9 +30,12 @@ same-audio benchmarks, allocation counts, raw data and reproduction commands.
 
 v0.1.6 changes only Windows text insertion: one Unicode scalar's key-down/up
 events are sent per call, using a reusable four-event buffer. This replaces
-bulk Unicode delivery after a real Notepad test reproduced corruption and
-then confirmed character-pair delivery worked. Successful insertion performs
-no heap allocations, clipboard operations, sleeps, polling or control lookup.
+bulk Unicode delivery after a short Notepad diagnostic accepted character
+pairs. Repeated v0.1.6 dictation still corrupted text in Notepad; the user
+confirmed that disabling both Notepad Spell check and Autocorrect stopped it.
+Character-pair delivery alone is not a complete Notepad compatibility fix.
+Successful insertion performs no heap allocations, clipboard operations,
+sleeps, polling or control lookup.
 It makes more input calls while inserting text; end-to-end delivery latency
 has not been benchmarked across apps. This does not change capture/listening.
 
