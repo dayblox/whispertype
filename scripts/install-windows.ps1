@@ -25,5 +25,11 @@ if (!(Test-Path (Join-Path $config 'groq.key'))) {
 $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 New-Item $run -Force | Out-Null
 New-ItemProperty -Path $run -Name Whispertype -Value ('"' + $target + '" run') -PropertyType String -Force | Out-Null
+$shortcutPath = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Whispertype.lnk'
+$shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
+$shortcut.TargetPath = $target
+$shortcut.Arguments = 'run'
+$shortcut.IconLocation = "$target,0"
+$shortcut.Save()
 Start-Process $target -ArgumentList 'run'
 Write-Host 'Whispertype is running. Ctrl+Space: tap to toggle, hold to talk. Right-click its tray icon for settings.'

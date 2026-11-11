@@ -100,7 +100,7 @@ pub fn start() -> Result<()> {
             return Err(error.into());
         }
     };
-    crate::platform::notify("Checking for updates…");
+    crate::platform::progress("Checking for updates…");
     std::thread::spawn(move || {
         let result = (|| -> Result<Reply> {
             let mut data = Vec::new();

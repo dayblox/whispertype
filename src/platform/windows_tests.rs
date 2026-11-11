@@ -86,6 +86,7 @@ fn native_menu_shows_selected_activation_and_only_requested_actions() {
                 state: "idle".into(),
                 wake: false,
                 startup: mode == crate::activation::Mode::Hold,
+                enrollment: None,
             };
             let menu = create_menu(&snapshot);
             assert!(!menu.is_null());
@@ -261,6 +262,7 @@ fn windows_desktop_smoke() {
                 state: state.into(),
                 wake: false,
                 startup: false,
+                enrollment: None,
             });
             // Execute the current snapshot synchronously so every state is
             // checked even when updates arrive faster than the tray loop.

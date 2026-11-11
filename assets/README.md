@@ -1,4 +1,4 @@
-# Built-in wake reference
+# Historical synthetic wake test fixture
 
 `hey-groq.rpw` is a Rustpotter 3 reference model containing MFCC features, not
 an audio recording or a neural network. Phrase: **Hey Groq** (pronounced
@@ -22,6 +22,8 @@ mono at 16 kHz, without a WAV header; they are used only in tests and are not
 embedded into the release executable.
 
 Synthetic tests are a regression check, not evidence of real-world accuracy.
+This model is now used only by tests/benchmarks. Production requires a personal
+model and never falls back to this synthetic reference.
 Use the tray's personal phrase enrollment for your own voice. eSpeak and
 FFmpeg are build-time generation tools and are not shipped or required by
 the application. Generated model/fixtures are supplied under the project

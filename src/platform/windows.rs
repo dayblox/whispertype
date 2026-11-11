@@ -22,6 +22,7 @@ use windows_sys::Win32::{
     System::{LibraryLoader::GetModuleHandleW, Registry::*},
     UI::{Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
 };
+mod ui;
 
 const CALLBACK: u32 = WM_APP + 1;
 const UPDATE: u32 = WM_APP + 2;
@@ -91,6 +92,7 @@ impl Desktop {
                 state: "idle".into(),
                 wake: false,
                 startup,
+                enrollment: None,
             }))
             .map_err(|_| anyhow::anyhow!("Desktop already initialized"))?;
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
@@ -113,8 +115,10 @@ impl Desktop {
                     DispatchMessageW(&message);
                 }
                 clear_overlay();
+                ui::close_all();
                 UnhookWindowsHookEx(hook);
                 tray(NIM_DELETE);
+                HWND_VALUE.store(0, Ordering::Relaxed);
                 Ok(())
             })();
             if let Err(err) = result {
@@ -160,6 +164,7 @@ unsafe fn create_window(
     let instance = GetModuleHandleW(null());
     let wc = WNDCLASSW {
         lpfnWndProc: Some(window_proc),
+        hIcon: LoadIconW(instance, std::ptr::without_provenance::<u16>(1)),
         hInstance: instance,
         lpszClassName: name.as_ptr(),
         ..zeroed()
@@ -201,19 +206,12 @@ unsafe extern "system" fn window_proc(window: HWND, msg: u32, w: WPARAM, l: LPAR
             if let Err(error) = sync_overlay() {
                 eprintln!("Indicator unavailable: {error:#}");
             }
+            ui::sync_enrollment();
             0
         }
         NOTICE => {
-            let text = Box::from_raw(l as *mut String);
-            let mut data: NOTIFYICONDATAW = zeroed();
-            data.cbSize = size_of::<NOTIFYICONDATAW>() as u32;
-            data.hWnd = window;
-            data.uID = 1;
-            data.uFlags = NIF_INFO;
-            data.dwInfoFlags = NIIF_INFO;
-            copy_wide(&mut data.szInfoTitle, "Whispertype");
-            copy_wide(&mut data.szInfo, &text);
-            Shell_NotifyIconW(NIM_MODIFY, &data);
+            let message = Box::from_raw(l as *mut (String, bool));
+            ui::notice(&message.0, message.1);
             0
         }
         CONTROL => {
@@ -366,9 +364,9 @@ unsafe fn create_menu(s: &Snapshot) -> HMENU {
         s.wake,
     );
     append(root, 31, "Record personal wake phrase…", false);
-    append(root, 32, "Restore ‘Hey Groq’ wake phrase", false);
     AppendMenuW(root, MF_SEPARATOR, 0, null());
-    append(root, 40, "Reload configuration", false);
+    append(root, 40, "Reload settings from file", false);
+    append(root, 44, "Transcription prompt…", false);
     append(root, 43, "Launch at startup", s.startup);
     append(root, 42, "Check for updates", false);
     append(root, 41, "Quit", false);
@@ -408,11 +406,11 @@ unsafe fn menu(window: HWND) {
             }
         }
         31 => "enroll",
-        32 => "wake-default",
         40 => "reload",
         41 => "quit",
         42 => "check-updates",
         43 => "startup-toggle",
+        44 => "prompt-edit",
         _ => return,
     };
     event(command);
@@ -500,7 +498,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, w: WPARAM, l: LPARAM) -> LRES
     CallNextHookEx(null_mut(), code, w, l)
 }
 
-const CONTROL_COMMANDS: [&str; 16] = [
+const CONTROL_COMMANDS: [&str; 19] = [
     "press",
     "release",
     "toggle",
@@ -517,6 +515,9 @@ const CONTROL_COMMANDS: [&str; 16] = [
     "shortcut-capture",
     "check-updates",
     "startup-toggle",
+    "enroll-next",
+    "enroll-cancel",
+    "prompt-edit",
 ];
 pub fn send(command: &str) -> Result<()> {
     unsafe {
@@ -533,12 +534,22 @@ pub fn send(command: &str) -> Result<()> {
         Ok(())
     }
 }
+
+pub fn edit_prompt(current: &str) -> Result<Option<String>> {
+    unsafe { ui::edit_prompt(current) }
+}
 pub fn notify(message: &str) {
+    feedback(message, false);
+}
+pub fn progress(message: &str) {
+    feedback(message, true);
+}
+fn feedback(message: &str, persistent: bool) {
     unsafe {
         // NOTICE carries an owned pointer and must stay within this process.
         let window = hwnd();
         if !window.is_null() {
-            let text = Box::into_raw(Box::new(message.to_string()));
+            let text = Box::into_raw(Box::new((message.to_string(), persistent)));
             if PostMessageW(window, NOTICE, 0, text as isize) == 0 {
                 drop(Box::from_raw(text));
             }

@@ -31,6 +31,7 @@ pub struct Desktop {
     socket: PathBuf,
     indicator: Option<Child>,
     indicator_state: String,
+    enrollment_view: Option<crate::enrollment::View>,
 }
 impl Desktop {
     pub fn start(
@@ -82,6 +83,7 @@ impl Desktop {
                         state: "idle".into(),
                         wake: false,
                         startup,
+                        enrollment: None,
                     },
                     sender,
                 })
@@ -102,9 +104,16 @@ impl Desktop {
             socket,
             indicator: None,
             indicator_state: String::new(),
+            enrollment_view: None,
         })
     }
     pub fn update(&mut self, snapshot: Snapshot) {
+        if snapshot.enrollment != self.enrollment_view {
+            self.enrollment_view = snapshot.enrollment.clone();
+            if let Some(view) = &self.enrollment_view {
+                notify(&view.text);
+            }
+        }
         let active = snapshot.config.indicator
             && matches!(
                 snapshot.state.as_str(),
@@ -185,7 +194,7 @@ impl ksni::Tray for Tray {
     }
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         let modes = [Mode::Auto, Mode::Hold, Mode::Toggle];
-        vec![
+        let mut items = vec![
             StandardItem {
                 label: format!("Whispertype · {}", self.snapshot.state),
                 enabled: false,
@@ -246,9 +255,9 @@ impl ksni::Tray for Tray {
             }
             .into(),
             self.item("Record personal wake phrase…", "enroll"),
-            self.item("Restore ‘Hey Groq’ wake phrase", "wake-default"),
             ksni::MenuItem::Separator,
-            self.item("Reload configuration", "reload"),
+            self.item("Reload settings from file", "reload"),
+            self.item("Transcription prompt…", "prompt-edit"),
             CheckmarkItem {
                 label: "Launch at startup".into(),
                 checked: self.snapshot.startup,
@@ -262,23 +271,89 @@ impl ksni::Tray for Tray {
             .into(),
             self.item("Check for updates", "check-updates"),
             self.item("Quit", "quit"),
-        ]
+        ];
+        if let Some(view) = &self.snapshot.enrollment {
+            let mut action = self.item(&view.action, "enroll-next");
+            if let ksni::MenuItem::Standard(item) = &mut action {
+                item.enabled = view.enabled;
+            }
+            items.insert(
+                1,
+                SubMenu {
+                    label: "Personal phrase setup".into(),
+                    submenu: vec![
+                        StandardItem {
+                            label: view.text.replace('\n', " "),
+                            enabled: false,
+                            ..Default::default()
+                        }
+                        .into(),
+                        action,
+                        self.item(
+                            if view.done {
+                                "Close setup"
+                            } else {
+                                "Cancel setup"
+                            },
+                            "enroll-cancel",
+                        ),
+                    ],
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+        items
     }
 }
 
 pub fn notify(message: &str) {
-    if let Ok(mut child) = Command::new("notify-send")
+    feedback(message, "4000");
+}
+pub fn progress(message: &str) {
+    feedback(message, "15000");
+}
+fn feedback(message: &str, expiry: &str) {
+    static ID: std::sync::Mutex<u32> = std::sync::Mutex::new(0);
+    let Ok(mut id) = ID.lock() else {
+        return;
+    };
+    if let Ok(output) = Command::new("notify-send")
         .args([
             "--app-name=Whispertype",
-            "--expire-time=7000",
+            "--expire-time",
+            expiry,
+            "--print-id",
+            "--replace-id",
+            &id.to_string(),
             "Whispertype",
             message,
         ])
         .stdin(Stdio::null())
-        .spawn()
+        .output()
     {
-        let _ = child.wait();
+        if let Ok(value) = String::from_utf8_lossy(&output.stdout).trim().parse() {
+            *id = value;
+        }
     }
+}
+
+pub fn edit_prompt(current: &str) -> Result<Option<String>> {
+    let mut child = Command::new("zenity").args(["--text-info", "--editable", "--title=Transcription prompt",
+        "--width=560", "--height=320", "--ok-label=Save", "--cancel-label=Cancel"])
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()
+        .context("Install zenity for the prompt editor, or edit prompt in config.toml and reload settings")?;
+    child.stdin.take().unwrap().write_all(current.as_bytes())?;
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let prompt = String::from_utf8(output.stdout)?;
+    ensure!(
+        prompt.len() <= 1024,
+        "Keep the prompt under 1024 UTF-8 bytes"
+    );
+    Ok(Some(prompt))
 }
 
 pub fn open_releases() -> Result<()> {

@@ -4,6 +4,7 @@ mod activation;
 mod audio;
 mod config;
 mod engine;
+mod enrollment;
 mod groq;
 mod platform;
 mod updates;
@@ -43,6 +44,11 @@ fn run() -> Result<()> {
         "_capture-shortcut" => platform::capture_shortcut(),
         "_check-updates" => {
             serde_json::to_writer(std::io::stdout(), &updates::check())?;
+            Ok(())
+        }
+        "_edit-prompt" => {
+            let config = config::Config::load(&paths)?;
+            serde_json::to_writer(std::io::stdout(), &platform::edit_prompt(&config.prompt)?)?;
             Ok(())
         }
         "init" => {

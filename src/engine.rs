@@ -2,13 +2,13 @@ use crate::{
     activation::{Action, Activation, Mode},
     audio::{self, Capture, RATE},
     config::{self, Config, Paths},
+    enrollment::{Enrollment, Outcome},
     platform, wake,
 };
 use anyhow::{ensure, Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
     fs::OpenOptions,
     io::Read,
     process::{Child, Command, Stdio},
@@ -29,6 +29,7 @@ pub enum Event {
     Result(u64, Transcript),
     Shortcut(String),
     Startup(Result<bool, String>),
+    Prompt(String),
 }
 #[derive(Serialize, Deserialize)]
 pub struct Transcript {
@@ -41,6 +42,7 @@ pub struct Snapshot {
     pub state: String,
     pub wake: bool,
     pub startup: bool,
+    pub enrollment: Option<crate::enrollment::View>,
 }
 pub fn valid_command(s: &str) -> bool {
     matches!(
@@ -58,6 +60,9 @@ pub fn valid_command(s: &str) -> bool {
             | "reload"
             | "check-updates"
             | "startup-toggle"
+            | "enroll-next"
+            | "enroll-cancel"
+            | "prompt-edit"
             | "quit"
     )
 }
@@ -69,13 +74,6 @@ struct Recording {
     voiced: bool,
     wake: bool,
     focus: Option<String>,
-}
-struct Enrollment {
-    samples: HashMap<String, Vec<u8>>,
-    pause_until: Instant,
-    current: Vec<i16>,
-    silence: usize,
-    voiced: bool,
 }
 struct Job {
     child: Child,
@@ -99,6 +97,7 @@ struct Engine {
     state: String,
     startup: bool,
     startup_changing: bool,
+    enrollment_view: Option<crate::enrollment::View>,
 }
 
 pub fn run(paths: Paths) -> Result<()> {
@@ -112,14 +111,13 @@ pub fn run(paths: Paths) -> Result<()> {
         instance.try_lock_exclusive().is_ok(),
         "Whispertype is already running"
     );
-    let config = Config::load(&paths)?;
-    if !paths.config.exists() {
-        config.save(&paths)?;
-    }
+    let mut config = Config::load(&paths)?;
+    // Wake listening is opt-in for each session, including upgrades from old profiles.
+    config.wake_enabled = false;
+    config.save(&paths)?;
     let (sender, receiver) = mpsc::sync_channel(64);
     let startup = platform::startup_enabled().unwrap_or(false);
     let desktop = platform::Desktop::start(&paths, &config, sender.clone(), startup)?;
-    let wake = config.wake_enabled;
     let mut app = Engine {
         paths,
         config,
@@ -136,19 +134,17 @@ pub fn run(paths: Paths) -> Result<()> {
         state: "idle".into(),
         startup,
         startup_changing: false,
+        enrollment_view: None,
     };
-    if wake {
-        if let Err(e) = app.set_wake(true) {
-            app.error(&format!("{e:#}"));
-        }
-    }
     app.refresh();
     loop {
-        let event = receiver.recv_timeout(if app.recording.is_some() || app.enrollment.is_some() {
-            Duration::from_millis(200)
-        } else {
-            Duration::from_secs(86400 * 365)
-        });
+        let event = receiver.recv_timeout(
+            if app.recording.is_some() || app.enrollment.as_ref().is_some_and(Enrollment::active) {
+                Duration::from_millis(200)
+            } else {
+                Duration::from_secs(86400 * 365)
+            },
+        );
         let result = match event {
             Ok(Event::Command(command)) if command == "quit" => break,
             Ok(Event::Command(command)) => app.command(&command),
@@ -165,6 +161,20 @@ pub fn run(paths: Paths) -> Result<()> {
             }
             Ok(Event::Result(id, result)) => app.completed(id, result),
             Ok(Event::Shortcut(shortcut)) => app.change_shortcut(&shortcut),
+            Ok(Event::Prompt(prompt)) => {
+                let mut next = app.config.clone();
+                next.prompt = prompt;
+                match next.save(&app.paths) {
+                    Ok(()) => {
+                        app.config = next;
+                        platform::notify(
+                            "Transcription prompt saved. It will be used for new uploads.",
+                        );
+                    }
+                    Err(error) => app.error(&format!("Prompt not saved: {error:#}")),
+                }
+                Ok(())
+            }
             Ok(Event::Startup(result)) => {
                 app.startup_changing = false;
                 match result {
@@ -177,6 +187,17 @@ pub fn run(paths: Paths) -> Result<()> {
                 Ok(())
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
+                if let Some(enrollment) = &mut app.enrollment {
+                    let outcome = enrollment.tick(Instant::now());
+                    let changed =
+                        app.enrollment_view.as_ref() != Some(&enrollment.view(Instant::now()));
+                    if outcome.is_some() {
+                        app.release_capture();
+                    }
+                    if changed {
+                        app.refresh();
+                    }
+                }
                 if app
                     .recording
                     .as_ref()
@@ -202,7 +223,7 @@ pub fn run(paths: Paths) -> Result<()> {
 
 impl Engine {
     fn refresh(&mut self) {
-        self.state = if self.enrollment.is_some() {
+        self.state = if self.enrollment.as_ref().is_some_and(Enrollment::active) {
             "enrolling"
         } else if self.recording.is_some() {
             "recording"
@@ -214,11 +235,13 @@ impl Engine {
             "idle"
         }
         .into();
+        self.enrollment_view = self.enrollment.as_ref().map(|e| e.view(Instant::now()));
         self.desktop.update(Snapshot {
             config: self.config.clone(),
             state: self.state.clone(),
             wake: self.wake,
             startup: self.startup,
+            enrollment: self.enrollment_view.clone(),
         });
     }
     fn error(&self, message: &str) {
@@ -246,11 +269,21 @@ impl Engine {
         Ok(())
     }
     fn set_wake(&mut self, enabled: bool) -> Result<()> {
+        if enabled && self.enrollment.as_ref().is_some_and(|e| !e.done()) {
+            platform::notify("Finish personal phrase setup before enabling wake listening.");
+            return Ok(());
+        }
+        if self.enrollment.as_ref().is_some_and(Enrollment::done) {
+            self.enrollment = None;
+        }
+        if enabled && !self.paths.model.exists() {
+            return self.begin_enrollment();
+        }
         if enabled {
             let _ = wake::detector(&self.config, &self.paths)?;
         }
         self.wake = enabled;
-        self.config.wake_enabled = enabled;
+        self.config.wake_enabled = false;
         self.config.save(&self.paths)?;
         if self.job.is_none() && self.recording.is_none() && self.enrollment.is_none() {
             self.resume()?;
@@ -443,27 +476,49 @@ impl Engine {
                 )
             }
             "enroll" => {
-                ensure!(
-                    self.recording.is_none() && self.job.is_none(),
-                    "Finish dictation first"
-                );
-                self.ensure_capture()?;
-                self.enrollment = Some(Enrollment {
-                    samples: HashMap::new(),
-                    pause_until: Instant::now() + Duration::from_secs(2),
-                    current: Vec::new(),
-                    silence: 0,
-                    voiced: false,
-                });
-                platform::notify("After two seconds, say your wake phrase. Repeat it three times, pausing two seconds between repetitions. Quit Whispertype to abort.");
+                return self.begin_enrollment();
+            }
+            "enroll-next" => {
+                if self.enrollment.as_ref().is_some_and(Enrollment::done) {
+                    self.enrollment = None;
+                    return self.resume();
+                }
+                if self.enrollment.is_some() {
+                    self.ensure_capture()?;
+                    self.enrollment.as_mut().unwrap().arm(Instant::now());
+                    self.refresh();
+                }
+                return Ok(());
+            }
+            "enroll-cancel" => {
+                self.enrollment = None;
+                self.release_capture();
                 self.refresh();
                 return Ok(());
             }
-            "wake-default" => {
-                let _ = std::fs::remove_file(&self.paths.model);
-                self.config.wake_phrase = "Hey Groq".into();
-                self.config.save(&self.paths)?;
-                return self.resume();
+            "prompt-edit" => {
+                let sender = self.sender.clone();
+                std::thread::spawn(move || {
+                    let result = (|| -> Result<Option<String>> {
+                        let child = platform::spawn_hidden(
+                            Command::new(std::env::current_exe()?)
+                                .arg("_edit-prompt")
+                                .stdout(Stdio::piped())
+                                .stdin(Stdio::null()),
+                        )?;
+                        let output = child.wait_with_output()?;
+                        ensure!(output.status.success(), "Could not open the prompt editor");
+                        Ok(serde_json::from_slice(&output.stdout)?)
+                    })();
+                    match result {
+                        Ok(Some(prompt)) => {
+                            let _ = sender.send(Event::Prompt(prompt));
+                        }
+                        Ok(None) => (),
+                        Err(error) => platform::notify(&format!("Prompt editor: {error:#}")),
+                    }
+                });
+                return Ok(());
             }
             "shortcut-capture" => {
                 platform::notify(
@@ -489,12 +544,20 @@ impl Engine {
                 return Ok(());
             }
             "reload" => {
+                if self.recording.is_some() || self.job.is_some() || self.enrollment.is_some() {
+                    platform::notify("Finish dictation or phrase setup before reloading settings.");
+                    return Ok(());
+                }
                 self.startup = platform::startup_enabled().unwrap_or(self.startup);
-                let next = Config::load(&self.paths)?;
+                let mut next = Config::load(&self.paths)?;
+                next.wake_enabled = false;
                 platform::set_shortcut(&self.paths, &next)?;
                 self.config = next;
-                self.cancel();
-                return self.set_wake(self.config.wake_enabled);
+                self.config.save(&self.paths)?;
+                self.activation.reset();
+                self.release_capture();
+                platform::notify("Settings reloaded from file.");
+                return self.resume();
             }
             _ if command.starts_with("shortcut:") => return self.change_shortcut(&command[9..]),
             _ if command.starts_with("mode:") => {
@@ -560,52 +623,45 @@ impl Engine {
         }
         Ok(())
     }
-    fn enroll_audio(&mut self, samples: &[i16]) -> Result<()> {
+    fn begin_enrollment(&mut self) -> Result<()> {
+        if self.recording.is_some() || self.job.is_some() {
+            platform::notify("Finish dictation before setting up your wake phrase.");
+            return Ok(());
+        }
+        self.wake = false;
+        self.config.wake_enabled = false;
+        self.config.save(&self.paths)?;
+        self.release_capture();
+        self.enrollment = Some(Enrollment::new());
+        self.refresh();
+        Ok(())
+    }
+    fn enroll_audio(&mut self, samples: &audio::Frame) -> Result<()> {
+        let now = Instant::now();
         let e = self.enrollment.as_mut().unwrap();
-        if Instant::now() < e.pause_until {
-            return Ok(());
+        let before = self.enrollment_view.clone();
+        let outcome = e.audio(samples, now, self.config.speech_rms);
+        let changed = before.as_ref() != Some(&e.view(now));
+        if outcome.is_some() {
+            self.release_capture();
         }
-        let speech = audio::is_speech(samples, self.config.speech_rms);
-        if speech {
-            e.voiced = true;
-            e.silence = 0;
-        } else {
-            e.silence += samples.len();
+        if matches!(outcome, Some(Outcome::Complete)) {
+            let samples = std::mem::take(&mut self.enrollment.as_mut().unwrap().samples);
+            let result = wake::train_buffers("Personal phrase", samples, &self.paths.model);
+            let message = match result {
+                Ok(()) => {
+                    self.config.wake_phrase = "Personal phrase".into();
+                    self.config.save(&self.paths)?;
+                    "Personal phrase saved. Wake listening is still off. Close this panel, then enable it from the tray when you want to use it.".to_string()
+                }
+                Err(error) => {
+                    format!("Could not save the phrase: {error:#}. Close this panel and try again.")
+                }
+            };
+            self.enrollment.as_mut().unwrap().finish(message);
         }
-        if e.voiced {
-            e.current.extend_from_slice(samples);
-        }
-        if !e.voiced {
-            return Ok(());
-        }
-        if e.current.len() > RATE * 4 {
-            anyhow::bail!(
-                "Wake phrase too long; use a short phrase and pause between repetitions."
-            );
-        }
-        if e.silence >= RATE * 7 / 10 {
-            if let Some(trimmed) = audio::trim_speech(&e.current, self.config.speech_rms) {
-                let wav = audio::wav(trimmed)?;
-                e.samples.insert(format!("{}.wav", e.samples.len()), wav);
-            }
-            e.current.clear();
-            e.voiced = false;
-            e.silence = 0;
-            if e.samples.len() == 3 {
-                let e = self.enrollment.take().unwrap();
-                wake::train_buffers("Personal phrase", e.samples, &self.paths.model)?;
-                self.config.wake_phrase = "Personal phrase".into();
-                self.config.save(&self.paths)?;
-                platform::notify(
-                    "Personal wake phrase saved locally. Enable wake-word listening from the tray.",
-                );
-                return self.resume();
-            }
-            platform::notify(&format!(
-                "Wake sample {}/3 saved. Wait two seconds, then repeat the same phrase.",
-                e.samples.len()
-            ));
-            e.pause_until = Instant::now() + Duration::from_secs(2);
+        if changed || outcome.is_some() {
+            self.refresh();
         }
         Ok(())
     }

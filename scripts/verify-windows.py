@@ -1,5 +1,7 @@
 """Validate the shipped PE and exercise redirected GUI-subsystem CLI handles."""
 import json
+import ctypes
+from ctypes import wintypes
 import os
 import pathlib
 import struct
@@ -27,6 +29,15 @@ def verify(binary):
         raise AssertionError(f'Unmapped PE address {rva:x}')
 
     imports = []
+    resources = offset(struct.unpack_from('<I', data, optional + 128)[0])
+    named, numbered = struct.unpack_from('<HH', data, resources + 12)
+    resource_types = {struct.unpack_from('<I', data, resources + 16 + index * 8)[0]
+                      for index in range(named + numbered)}
+    assert {3, 14} <= resource_types, 'Missing embedded icon/group-icon resources'
+    extract = ctypes.windll.shell32.ExtractIconExW
+    extract.argtypes = [wintypes.LPCWSTR, ctypes.c_int, ctypes.POINTER(wintypes.HICON), ctypes.POINTER(wintypes.HICON), wintypes.UINT]
+    extract.restype = wintypes.UINT
+    assert extract(str(binary), -1, None, None, 0) > 0, 'Windows cannot extract the application icon'
     descriptor = offset(struct.unpack_from('<I', data, optional + 120)[0])
     while any(data[descriptor:descriptor + 20]):
         name_offset = offset(struct.unpack_from('<I', data, descriptor + 12)[0])
@@ -58,7 +69,7 @@ def verify(binary):
         assert worker.returncode == 0 and result['error'] and not result['text']
     print(f'Windows x64 GUI executable verified ({len(data):,} bytes).')
     print('System DLLs: ' + ', '.join(imports))
-    print('Redirected help/config/error and offline worker IPC passed.')
+    print('Embedded application icon, redirected help/config/error and offline worker IPC passed.')
 
 
 if __name__ == '__main__':

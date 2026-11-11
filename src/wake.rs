@@ -2,7 +2,7 @@ use crate::{
     audio,
     config::{Config, Paths},
 };
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use rustpotter::{
     Rustpotter, RustpotterConfig, WakewordRef, WakewordRefBuildFromBuffers, WakewordSave,
 };
@@ -17,11 +17,8 @@ pub(crate) fn reference(config: &Config, paths: &Paths) -> Result<Rustpotter> {
     settings.detector.min_scores = 3;
     settings.detector.vad_mode = Some(rustpotter::VADMode::Easy);
     let mut detector = Rustpotter::new(&settings).map_err(anyhow::Error::msg)?;
-    let data = if paths.model.exists() {
-        std::fs::read(&paths.model)?
-    } else {
-        include_bytes!("../assets/hey-groq.rpw").to_vec()
-    };
+    let data = std::fs::read(&paths.model)
+        .context("Record a personal wake phrase before enabling wake listening")?;
     detector
         .add_wakeword_from_buffer("wake", &data)
         .map_err(anyhow::Error::msg)?;
@@ -127,6 +124,7 @@ mod tests {
     fn quiet_gate_rearms_and_preserves_phrase_after_long_silence() {
         let temp = tempfile::tempdir().unwrap();
         let paths = Paths::at(temp.path().to_path_buf()).unwrap();
+        std::fs::write(&paths.model, include_bytes!("../assets/hey-groq.rpw")).unwrap();
         let mut detector = detector(&Config::default(), &paths).unwrap();
         for _ in 0..1000 {
             assert!(!detector.process(&[0; audio::FRAME]));
@@ -152,9 +150,11 @@ mod tests {
         }
     }
     #[test]
-    fn bundled_phrase_matches_held_out_voice_and_rejects_other_speech() {
+    fn synthetic_fixture_matches_held_out_synthetic_voice_and_rejects_other_speech() {
         let temp = tempfile::tempdir().unwrap();
         let paths = Paths::at(temp.path().to_path_buf()).unwrap();
+        assert!(detector(&Config::default(), &paths).is_err());
+        std::fs::write(&paths.model, include_bytes!("../assets/hey-groq.rpw")).unwrap();
         for (data, expected) in [
             (
                 include_bytes!("../assets/test-positive.pcm").as_slice(),

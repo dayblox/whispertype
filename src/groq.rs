@@ -306,11 +306,16 @@ mod tests {
                 assert!(data.contains("whisper-large-v3"));
                 assert!(data.contains("filename=\"speech.wav\""));
                 assert!(data.contains("RIFF"));
+                assert!(data.contains("name=\"prompt\""));
+                assert!(data.contains("Whispertype, Groq, Dayblox"));
                 write!(client,"HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{headers}Connection: close\r\n\r\n{response}",response.len()).unwrap();
             });
             let result = transcribe_at(
                 &paths,
-                &Config::default(),
+                &Config {
+                    prompt: "Whispertype, Groq, Dayblox".into(),
+                    ..Config::default()
+                },
                 crate::audio::wav(&vec![1000; 16000]).unwrap(),
                 &format!("http://{address}/audio/transcriptions"),
             );

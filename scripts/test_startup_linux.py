@@ -17,7 +17,7 @@ class StartupTests(unittest.TestCase):
             root = pathlib.Path(temp)
             profile = root / 'profile'
             profile.mkdir()
-            (profile / 'config.toml').write_text('tray = false\nindicator = false\n')
+            (profile / 'config.toml').write_text('tray = false\nindicator = false\nwake_enabled = true\n')
             tools = root / 'bin'
             tools.mkdir()
             controller = tools / 'systemctl'
@@ -33,11 +33,19 @@ case "$*" in
 esac
 ''')
             controller.chmod(0o755)
+            notifier = tools / 'notify-send'
+            notifier.write_text('''#!/bin/sh
+for argument do last="$argument"; done
+printf '%s\\n' "$last" >> "$FEEDBACK_TEST_LOG"
+echo 42
+''')
+            notifier.chmod(0o755)
             state = root / 'enabled'
             log = root / 'commands.log'
             env = dict(os.environ, HOME=str(root / 'home'), XDG_CONFIG_HOME=str(root / 'config'),
                        WHISPERTYPE_HOME=str(profile), PATH=f'{tools}:{os.environ["PATH"]}',
                        STARTUP_TEST_STATE=str(state), STARTUP_TEST_LOG=str(log))
+            env['FEEDBACK_TEST_LOG'] = str(root / 'feedback.log')
             app = subprocess.Popen([str(binary), 'run'], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
             def wait_for(predicate):
@@ -55,6 +63,7 @@ esac
 
             try:
                 wait_for(lambda: (profile / 'control.sock').exists())
+                self.assertIn('wake_enabled = false', (profile / 'config.toml').read_text())
                 send('startup-toggle')
                 wait_for(state.exists)
                 unit = root / 'config/systemd/user/whispertype.service'
@@ -68,6 +77,11 @@ esac
                 self.assertIn('--user enable whispertype.service', commands)
                 self.assertIn('--user disable whispertype.service', commands)
                 self.assertFalse(any('--now' in line or ' start ' in line or ' stop ' in line for line in commands))
+                send('wake-on')
+                feedback = root / 'feedback.log'
+                wait_for(lambda: feedback.exists() and 'Click Record when you are ready' in feedback.read_text())
+                self.assertFalse((profile / 'wake.rpw').exists(), 'Wake must require personal enrollment')
+                send('enroll-cancel')
                 send('quit')
                 stdout, stderr = app.communicate(timeout=5)
                 self.assertEqual(app.returncode, 0, stderr.decode())

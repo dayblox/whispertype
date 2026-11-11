@@ -7,7 +7,19 @@ not supplied during development.
 
 ## Completed checks
 
-- Native Windows x64 MSVC: **19 functional tests pass**, with three explicit
+- v0.1.2: hidden native-window tests verify immediate notification replacement,
+  expiry without stopping the tray, and Unicode prompt Save/Cancel behavior.
+  Enrollment state tests cover per-sample clicks, countdowns without audio,
+  silence timeouts, short/long retries, and three successful captures.
+- Mock Groq uploads assert the custom prompt field and its exact text. Wake
+  detector construction rejects a missing personal model; synthetic references
+  are installed explicitly only by tests, never by production fallback logic.
+  The Linux headless integration checks migration from saved wake=true to off
+  and opening personal setup instead of starting wake listening without a model.
+- Windows builds contain icon and group-icon resources, and the Windows shell
+  can extract the icon. Inno Setup and Start Menu shortcuts use the embedded icon.
+
+- Native Windows x64 MSVC: **23 functional tests pass**, with three explicit
   opt-in tests (offline benchmark, interactive desktop, physical microphone).
   Packaging tests cover Windows/Linux archives, standalone outputs, repeat
   runs, checksums, and missing inputs. On Linux, a fake app verifies the

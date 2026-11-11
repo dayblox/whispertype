@@ -82,6 +82,6 @@ this opens the microphone in a disposable profile and cancels all recordings.
 See `benchmarks/windows-resources.json` and `VALIDATION.md` for the hardware
 sample and its limits. No new whole-app before/after reduction is claimed for
 the small Windows changes. A live Groq upload was not measured because no API
-key was supplied. The bundled synthesized wake
-model remains experimental; personal enrollment is recommended. This is a
+key was supplied. Synthetic wake references are retained only as test fixtures; production
+requires personal enrollment and wake listening starts off each launch. This is a
 measured optimization pass, not proof of a theoretical resource minimum.

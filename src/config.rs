@@ -81,7 +81,7 @@ impl Default for Config {
             indicator: true,
             wake_enabled: false,
             wake_threshold: 0.65,
-            wake_phrase: "Hey Groq".into(),
+            wake_phrase: "Personal phrase".into(),
             protect_focus: true,
         }
     }

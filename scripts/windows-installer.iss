@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.1"
+  #define AppVersion "0.1.2"
 #endif
 
 [Setup]
@@ -20,6 +20,7 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\whispertype.exe
+SetupIconFile=..\assets\whispertype.ico
 LicenseFile=..\LICENSE
 CloseApplications=yes
 RestartApplications=no
@@ -34,7 +35,7 @@ Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Whispertype"; Filename: "{app}\whispertype.exe"; Parameters: "run"
+Name: "{group}\Whispertype"; Filename: "{app}\whispertype.exe"; Parameters: "run"; IconFilename: "{app}\whispertype.exe"; IconIndex: 0
 Name: "{group}\Uninstall Whispertype"; Filename: "{uninstallexe}"
 
 [Registry]
