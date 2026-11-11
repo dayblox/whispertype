@@ -140,6 +140,7 @@ python scripts/compare-windows-efficiency.py `
 $env:WHISPERTYPE_BENCH_MODEL = "$env:APPDATA\whispertype\wake.rpw"
 $env:WHISPERTYPE_BENCH_WAV = 'path/to/local-16khz-mono-pcm16.wav'
 cargo test --release --locked efficiency_benchmark -- --ignored --nocapture --test-threads=1
+cargo test --release --locked personal_capture_delivery_equivalence -- --ignored --nocapture --test-threads=1
 cargo test --release --locked optimization_benchmark -- --ignored --nocapture --test-threads=1
 cargo test --release --locked -p rustpotter --lib mfcc::
 ```

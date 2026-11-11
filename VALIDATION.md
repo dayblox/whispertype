@@ -7,7 +7,7 @@ not supplied during development.
 
 ## Completed checks
 
-- v0.1.5: **30 Windows functional tests pass**, with four opt-in tests;
+- v0.1.5: **30 Windows functional tests pass**, with five opt-in tests;
   two vendored MFCC/DTW equivalence tests also pass in debug and release.
   The retained original extractor verifies bit-identical features across
   sizes and resets, and the original matrix DTW checks identical terminal

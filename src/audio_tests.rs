@@ -75,6 +75,53 @@ fn quiet_delivery_keeps_detection_frames_identical_across_long_pauses() {
 }
 
 #[test]
+#[ignore = "Local personal voice replay; requires WHISPERTYPE_BENCH_MODEL and WHISPERTYPE_BENCH_WAV"]
+fn personal_capture_delivery_equivalence() {
+    let model = std::env::var_os("WHISPERTYPE_BENCH_MODEL").expect("Set WHISPERTYPE_BENCH_MODEL");
+    let wav = std::env::var_os("WHISPERTYPE_BENCH_WAV").expect("Set WHISPERTYPE_BENCH_WAV");
+    let mut reader = hound::WavReader::open(wav).unwrap();
+    let mut pcm: Vec<i16> = reader.samples::<i16>().map(Result::unwrap).collect();
+    pcm.extend(vec![0; RATE * 3]);
+    let frames = pcm.as_chunks::<FRAME>().0;
+    let temp = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::at(temp.path().into()).unwrap();
+    std::fs::copy(model, &paths.model).unwrap();
+    let config = Config::default();
+    let mut direct = crate::wake::detector(&config, &paths).unwrap();
+    let expected: Vec<_> = frames
+        .iter()
+        .enumerate()
+        .filter_map(|(i, frame)| direct.process(frame).then_some(i))
+        .collect();
+    assert_eq!(expected.len(), 3);
+    let mut cached = crate::wake::detector(&config, &paths).unwrap();
+    // A compiled detector must remain usable without re-reading its model.
+    std::fs::remove_file(&paths.model).unwrap();
+    for _ in 0..3 {
+        // Reset with an unfinished phrase, as when dictation interrupts listening.
+        for frame in &frames[..expected[0]] {
+            cached.process(frame);
+        }
+        cached.reset();
+        let mut delivery = FrameDelivery::new(config.speech_rms * 0.5);
+        let mut actual = Vec::new();
+        for (i, frame) in frames.iter().enumerate() {
+            delivery.process(*frame, true, |frame| {
+                if cached.process(&frame) {
+                    actual.push(i);
+                }
+            });
+        }
+        assert_eq!(
+            actual, expected,
+            "Gate/cache changed personal detection timing"
+        );
+        cached.reset();
+    }
+    println!("All three real phrase detections retain identical frame positions through capture gating and repeated cached resets. No audio uploaded.");
+}
+
+#[test]
 #[ignore = "Requires a real microphone; captures three seconds locally without storing or uploading audio"]
 fn microphone_smoke() {
     let (sender, receiver) = mpsc::sync_channel(64);
