@@ -29,22 +29,32 @@ jobs:
         with:
           python-version: '3.13'
       - if: runner.os == 'Linux'
-        name: Install Linux build dependencies from Ubuntu archive
+        name: Install Linux build dependencies
         run: |
-          # Avoid the runner's Azure mirror, which can intermittently fail DNS.
+          # Probe independent Ubuntu mirrors before asking apt to download packages.
+          # All mirrors still require Ubuntu's signed package indexes.
+          archive=''
+          for candidate in https://archive.ubuntu.com/ubuntu https://mirrors.edge.kernel.org/ubuntu https://mirror.math.princeton.edu/pub/ubuntu; do
+            if curl --fail --silent --show-error --location --connect-timeout 5 --max-time 15 --output /dev/null "$candidate/dists/jammy/InRelease"; then
+              archive="$candidate"
+              break
+            fi
+          done
+          if [[ -z $archive ]]; then
+            echo 'No Ubuntu mirror is reachable; runner DNS configuration:'
+            cat /etc/resolv.conf
+            exit 1
+          fi
+          echo "Using Ubuntu mirror: $archive"
           sources="$RUNNER_TEMP/whispertype-apt.list"
           printf '%s\n' \
-            'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu jammy main' \
-            'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu jammy-updates main' \
-            'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu jammy-security main' > "$sources"
+            "deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] $archive jammy main" \
+            "deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] $archive jammy-updates main" \
+            "deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] $archive jammy-security main" > "$sources"
           options=(-o "Dir::Etc::sourcelist=$sources" -o 'Dir::Etc::sourceparts=-' -o Acquire::Retries=2 -o Acquire::https::Timeout=20)
           # sudo drops proxy variables; apt also expects their lowercase forms.
           # Preserve the runner's network route without printing proxy credentials.
           network=("http_proxy=${http_proxy:-${HTTP_PROXY:-}}" "https_proxy=${https_proxy:-${HTTPS_PROXY:-}}" "no_proxy=${no_proxy:-${NO_PROXY:-}}")
-          for name in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do
-            if [[ -n ${!name:-} ]]; then echo "$name is configured"; fi
-          done
-          curl --fail --silent --show-error --location --max-time 30 --output /dev/null https://archive.ubuntu.com/ubuntu/dists/jammy/InRelease
           sudo env "${network[@]}" apt-get "${options[@]}" -o APT::Update::Error-Mode=any update
           sudo env "${network[@]}" apt-get "${options[@]}" install -y libasound2-dev libxkbcommon-dev
       - name: Test, build and package native Windows EXE
