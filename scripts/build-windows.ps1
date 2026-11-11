@@ -1,5 +1,6 @@
 # Native, repeatable Windows build. Does not install the app or change startup.
 param(
+    [switch]$Installer,
     [switch]$Benchmark,
     [switch]$DesktopTests,
     [switch]$MicrophoneTest
@@ -29,7 +30,25 @@ try {
     }
     & python scripts/test_package.py
     if ($LASTEXITCODE -ne 0) { throw 'Packaging tests failed' }
-    & python scripts/package.py --platform windows --windows-binary target/release/whispertype.exe
+    & python scripts/test_release.py
+    if ($LASTEXITCODE -ne 0) { throw 'Release tests failed' }
+    $packageArguments = @('scripts/package.py', '--platform', 'windows', '--windows-binary', 'target/release/whispertype.exe')
+    if ($Installer) {
+        $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+        $iscc = if ($compiler) { $compiler.Source } else {
+            @(
+                (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+                (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+                (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
+            ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        }
+        if (!$iscc) { throw 'Install Inno Setup 6 to build the Windows installer.' }
+        $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+        & $iscc "/DAppVersion=$version" scripts/windows-installer.iss
+        if ($LASTEXITCODE -ne 0) { throw 'Windows installer compilation failed' }
+        $packageArguments += @('--windows-installer', 'dist/whispertype-windows-x64-setup.exe')
+    }
+    & python @packageArguments
     if ($LASTEXITCODE -ne 0) { throw 'Packaging failed' }
     Write-Host 'Ready: target\release\whispertype.exe and dist\whispertype-windows-x64.zip'
 } finally {

@@ -9,8 +9,11 @@ not supplied during development.
 
 - Native Windows x64 MSVC: **14 functional tests pass**, with three explicit
   opt-in tests (offline benchmark, interactive desktop, physical microphone).
-  The two packaging tests pass for Windows and Linux archives, repeat runs,
-  checksums, and missing-input errors.
+  Packaging tests cover Windows/Linux archives, standalone outputs, repeat
+  runs, checksums, and missing inputs. On Linux, a fake app verifies the
+  self-extracting installer installs its payload and invokes `init` without
+  compiling or touching the real desktop. Release tests reject corrupt or
+  incomplete platform payloads before publishing.
 - Opt-in Windows microphone check: default device opened at **48 kHz stereo**,
   passed through FFT resampling, delivered **100 PCM frames in three seconds**,
   closed cleanly, and reported no queue overflow. No audio saved/uploaded.
@@ -138,6 +141,8 @@ Run it on Windows 10/11 with your actual microphone and API key. Check tap vs
 hold, shortcut capture, tray actions, focus-change protection, Unicode typing
 in the applications you use, sign-in startup, and your voice's wake-phrase
 accuracy. The GitHub Actions workflow runs native Windows build/unit/packaging
-tests on every push to `main`, pull request, and manual dispatch. It uploads a
-portable EXE artifact and an installable ZIP with checksums after checks pass.
+tests on every push to `main`, version tag, pull request, and manual dispatch.
+It tests a temporary Windows install/uninstall and Linux self-extraction,
+then publishes installers, standalone binaries and archives to GitHub Releases
+after both builds pass. Main builds are prereleases; version tags are stable.
 Hardware tests remain opt-in locally. The built executable is unsigned.

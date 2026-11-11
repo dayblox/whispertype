@@ -2,6 +2,7 @@ name: Build and test
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -16,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -32,7 +33,11 @@ jobs:
       - name: Test, build and package native Windows EXE
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/build-windows.ps1
+        run: ./scripts/build-windows.ps1 -Installer
+      - name: Verify Windows installer and uninstaller
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-installer.ps1
       - name: Test, build and package Linux
         if: runner.os == 'Linux'
         run: |
@@ -41,22 +46,43 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo build --release --locked
           python scripts/test_package.py
+          python scripts/test_release.py
           python scripts/package.py --platform linux
-      - name: Upload portable Windows EXE
-        if: runner.os == 'Windows'
+      - name: Upload release assets and platform checksums
         uses: actions/upload-artifact@v7
         with:
-          name: whispertype-windows-x64-exe
-          path: target/release/whispertype.exe
+          name: release-${{ runner.os }}-x64
+          path: dist/
           if-no-files-found: error
           retention-days: 30
-      - name: Upload installable package and checksums
-        uses: actions/upload-artifact@v7
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
-          name: whispertype-${{ runner.os }}-x64
-          path: |
-            dist/*.zip
-            dist/*.tar.gz
-            dist/SHA256SUMS
-          if-no-files-found: error
-          retention-days: 30
+          python-version: '3.13'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*-x64
+          path: incoming
+      - name: Verify and publish installers and standalones
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
+          RELEASE_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          python scripts/test_release.py
+          if [ "$RELEASE_REF_TYPE" = tag ]; then
+            python scripts/release.py --artifacts incoming --output release-assets --tag "$RELEASE_REF_NAME" --commit "$RELEASE_COMMIT"
+          else
+            tag="main-${RELEASE_RUN_NUMBER}-${RELEASE_COMMIT:0:7}"
+            python scripts/release.py --artifacts incoming --output release-assets --tag "$tag" --commit "$RELEASE_COMMIT" --prerelease
+          fi

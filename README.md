@@ -13,7 +13,12 @@ Dictation is uploaded after you stop; this is not streaming transcription. Resul
 
 ## Windows
 
-Extract the Windows release and run `install-windows.ps1` in PowerShell:
+Download from [GitHub Releases](https://github.com/dayblox/whisper/releases/latest):
+
+- **Installer:** `whispertype-windows-x64-setup.exe`. Installs for the current user, offers optional sign-in startup and hidden Groq key entry, and includes an uninstaller. No administrator rights required.
+- **Standalone:** `whispertype-windows-x64.exe`, or `whispertype-windows-x64.zip` for the binary with documentation and install/uninstall scripts.
+
+For the ZIP, extract it and run `install-windows.ps1` in PowerShell:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install-windows.ps1
@@ -29,17 +34,30 @@ To build on Windows, install Rust, the Visual Studio C++ build tools, and Python
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 # Optional local checks (opens a test window and the microphone):
 .\scripts\build-windows.ps1 -Benchmark -DesktopTests -MicrophoneTest
+# Also build Setup.exe (requires Inno Setup 6):
+.\scripts\build-windows.ps1 -Installer
 ```
 
 The script checks formatting, runs unit tests and Clippy, builds the native release EXE, verifies its GUI subsystem/system-only DLL imports and redirected CLI/worker output, then tests and creates the installable ZIP plus `SHA256SUMS`. Outputs: `target\release\whispertype.exe` and `dist\whispertype-windows-x64.zip`. The MSVC runtime is linked statically; end users need no Python or C++ runtime installation. For just the binary, `cargo build --release --locked` still works. `uninstall-windows.ps1` removes startup registration and the installed binary while retaining settings.
 
-**Automatic builds:** every push to `main`, pull request, and manual run of [Build and test](https://github.com/dayblox/whisper/actions/workflows/build.yml) builds and checks Windows and Linux. In a successful run's **Artifacts**, download `whispertype-windows-x64-exe` for the portable EXE, or `whispertype-Windows-x64` for the installable ZIP and checksums. Artifacts are retained for 30 days and require a GitHub sign-in. No API key is needed for CI. There is no automatic GitHub Release publication.
+**Automatic releases:** [Build and test](https://github.com/dayblox/whisper/actions/workflows/build.yml) checks both platforms, tests installers, and publishes a [GitHub Release](https://github.com/dayblox/whisper/releases) only after both builds pass. Every `main` push publishes an immutable `main-RUNNUMBER-SHORTSHA` prerelease. Push a `vVERSION` tag matching `Cargo.toml` for a stable release (for example, `v0.1.0`); stable releases appear at the [latest release](https://github.com/dayblox/whisper/releases/latest) link. Pull requests run checks without publishing. Manual dispatch also produces a main prerelease. Each release includes installers, standalone binaries, portable archives, licenses, and a combined `SHA256SUMS`. No API key is needed for CI. Actions artifacts remain available for 30 days; release downloads persist independently.
 
 **Validation:** native Windows unit, microphone, and desktop smoke tests now pass. The desktop check types Unicode into its own native edit field, exercises hook transitions and IPC, and checks the indicator does not steal focus. Physical shortcut use, personal wake accuracy, application-specific typing, sign-in startup, and live Groq transcription remain manual checks. See `VALIDATION.md`.
 
 ## Linux
 
-Tested target: Omarchy / Hyprland with Lua configuration and PipeWire's ALSA compatibility layer. Dependencies: ALSA development headers, `pkg-config`, `libxkbcommon`, `wtype`, a StatusNotifier tray host, and a layer-shell compositor. On Arch/Omarchy these runtime components are normally installed. GNOME, X11, and generic non-Hyprland shortcut setup are not implemented.
+Tested desktop: Omarchy / Hyprland with Lua configuration and PipeWire's ALSA compatibility layer. GNOME, X11, and generic non-Hyprland shortcut setup are not implemented. Release binaries are built on Ubuntu 22.04 (glibc 2.35+) and require ALSA/PipeWire, `libxkbcommon`, `wtype`, a StatusNotifier tray host, a layer-shell compositor and systemd user services. On Arch/Omarchy these runtime components are normally installed.
+
+Download the **self-extracting installer** `whispertype-linux-x64-install.sh` from [Releases](https://github.com/dayblox/whisper/releases/latest):
+
+```sh
+bash whispertype-linux-x64-install.sh
+~/.local/bin/whispertype set-key
+```
+
+It installs the bundled binary without Rust, configures Hyprland/user startup, and preserves settings. Alternatively, extract `whispertype-linux-x64.tar.gz` and run its `install-linux.sh`. For standalone use, download `whispertype-linux-x64`, make it executable with `chmod +x`, and run it with `run` after configuring your key. `init` enables desktop/startup integration. Standalone means no installation is required; Linux system libraries and desktop support requirements still apply.
+
+To build from source, also install ALSA development headers and `pkg-config`:
 
 ```sh
 cargo build --release --locked
