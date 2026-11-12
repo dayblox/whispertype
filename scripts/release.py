@@ -57,6 +57,19 @@ def publish(files, tag, commit, prerelease=False):
         raise ValueError(f'Stable tag must match Cargo.toml: v{version}')
     notes = f'''Built from `{commit}` after Windows and Linux tests passed.
 
+**Microphone fallback:** inputs delivering digital silence for their first 300 ms
+are probed silently alongside another input. The first live stream wins, including
+a primary microphone that recovers. At most two streams and two bounded recording
+buffers are kept; loopback/monitor sources are excluded. Dead-device memory lasts
+only for the process and resets when the default input changes. No new settings,
+notifications, idle polling or application threads are added.
+
+Synthetic fallback/recovery tests and native Windows microphone checks pass.
+Native Linux device fallback and hardware mute/disconnection combinations still
+need testing on the destination machine. The measured Windows working-set cost
+(36–52 KiB during capture, 44 KiB afterward) was accepted for this release;
+see `benchmarks/windows-microphone-fallback.md` for conditions and limits.
+
 | Platform | Installer | Standalone / portable |
 | --- | --- | --- |
 | Windows 10/11 x64 | `whispertype-windows-x64-setup.exe` (per user, no admin) | `whispertype-windows-x64.exe` or `whispertype-windows-x64.zip` |

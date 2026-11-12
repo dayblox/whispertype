@@ -23,6 +23,7 @@ try {
     & python scripts/test_windows_update.py target/release/whispertype.exe
     if ($LASTEXITCODE -ne 0) { throw 'Windows update helper validation failed' }
     if ($Benchmark) {
+        Invoke-Cargo -Arguments @('test', '--release', '--locked', 'microphone_probe_allocates', '--', '--ignored', '--nocapture', '--test-threads=1')
         Invoke-Cargo -Arguments @('test', '--release', '--locked', 'winhttp_upload_allocations', '--', '--ignored', '--nocapture', '--test-threads=1')
         Invoke-Cargo -Arguments @('test', '--release', '--locked', 'optimization_benchmark', '--', '--ignored', '--nocapture', '--test-threads=1')
         Invoke-Cargo -Arguments @('test', '--release', '--locked', 'unicode_insertion_benchmark', '--', '--ignored', '--nocapture', '--test-threads=1')

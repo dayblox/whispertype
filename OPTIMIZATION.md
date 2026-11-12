@@ -1,6 +1,13 @@
 # Optimization pass — November 11, 2026
 
 The standing RAM/CPU requirements for future work are in `AGENTS.md`.
+Microphone fallback classifies startup digital silence from callback frames,
+then bypasses the peak scan after a live stream wins. Probing holds at most
+two CPAL streams and two bounded PCM buffers; losing streams close immediately.
+Only dead device identities can remain between captures. Discovery/default
+checks are on demand, with no idle poll, listener, helper or new timer. See
+`benchmarks/windows-microphone-fallback.md` for matched working-input profiles,
+the default-device workload change, allocation tests and Linux/hardware limits.
 The November 12 Windows WinHTTP change removes bundled TLS/crypto dependencies
 and warms the existing upload helper at recording start. Native completion
 events enforce request deadlines without a watchdog thread or idle polling.

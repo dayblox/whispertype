@@ -7,6 +7,18 @@ not supplied during development.
 
 ## Completed checks
 
+- Digital-silence capture fallback: **57 functional tests**, two MFCC/DTW
+  equivalence tests, Windows build/Clippy/import/package/installer checks,
+  allocation benchmarks and the real microphone smoke test pass. Synthetic
+  frames cover dead/recovered inputs, first-live selection, bounded buffers,
+  all-dead energy choice, cache reset and queued-frame safety. Linux capture
+  modules pass isolated cross-target type-checking/Clippy, with no native Linux
+  execution here. Resource conditions and limits are recorded in
+  `benchmarks/windows-microphone-fallback.md`. The user accepted the measured
+  36–52 KiB active and 44 KiB post-capture working-set increase by instructing
+  release after reviewing that cost on November 12, 2026. This is an accepted
+  tradeoff under `AGENTS.md`, not evidence of zero added resource cost.
+
 - November 12 WinHTTP/installer changes: **47 functional tests**, formatting,
   Clippy, release/system-DLL checks, package/release tests, update integration,
   streaming allocation checks and Inno Setup compilation pass through

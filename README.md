@@ -173,6 +173,22 @@ prompt = ""                      # short vocabulary/context hints
 # microphone = "USB"             # substring of input device name
 ```
 
+Microphone capture starts with the configured name match, or the system default
+input when `microphone` is omitted. If every frame during the first 300 ms stays
+at or below 2 on the 16-bit PCM scale, Whispertype silently tries other inputs
+in enumeration order, excluding loopback/monitor sources. It keeps the primary
+open and at most one candidate open; the first stream with a frame above 2 wins.
+Both recording buffers are bounded by `max_seconds`. If you finish before a
+stream wins, the buffer with more energy is used; entirely silent recordings
+are discarded as before.
+
+A dead input is remembered only in memory. The next capture probes alongside
+it immediately, and a recovered primary can win again. Changing the system
+default input clears that memory when capture next starts. Dead/probing frames
+do not feed wake recognition or silence auto-stop. There are no switch
+notifications, extra settings, idle device polling, or device-change listeners.
+After a live stream is chosen, the peak check stops and ordinary capture resumes.
+
 Commands: `run`, `init`, `press`, `release`, `start`, `stop`, `toggle`, `cancel`, `wake-on`, `wake-off`, `enroll`, `wake-test`, `paste`, `reload`, `check-updates`, `startup-toggle`, `prompt-edit`, `enroll-next`, `enroll-cancel`, `quit`, `set-key`, `config`, `train`, `transcribe FILE.wav`. On Windows the GUI-subsystem executable writes CLI output only when handles are redirected. `init` registers sign-in startup on Windows; the installer script additionally starts it immediately.
 
 ## Resource design and checks

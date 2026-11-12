@@ -16,75 +16,10 @@ use std::sync::mpsc;
 
 pub const RATE: usize = 16000;
 
-pub struct Capture {
-    _stream: cpal::Stream,
-    gated: Arc<AtomicBool>,
-    pub overflow: Arc<AtomicBool>,
-}
-impl Capture {
-    pub fn start(config: &Config, sender: SyncSender<Event>) -> Result<Self> {
-        let host = cpal::default_host();
-        let device = if let Some(name) = &config.microphone {
-            host.input_devices()?
-                .find(|d| d.name().is_ok_and(|n| n.contains(name)))
-                .context("Configured microphone not found")?
-        } else {
-            host.default_input_device()
-                .context("No default microphone")?
-        };
-        let overflow = Arc::new(AtomicBool::new(false));
-        let gated = Arc::new(AtomicBool::new(false));
-        let default = device.default_input_config()?;
-        let preferred = prefer_native(&device, &default);
-        let open = |supported: cpal::SupportedStreamConfig| -> Result<cpal::Stream> {
-            let format = supported.sample_format();
-            let stream_config: cpal::StreamConfig = supported.into();
-            match format {
-                cpal::SampleFormat::F32 => build::<f32>(
-                    &device,
-                    &stream_config,
-                    sender.clone(),
-                    overflow.clone(),
-                    gated.clone(),
-                    config.speech_rms * 0.5,
-                ),
-                cpal::SampleFormat::I16 => build::<i16>(
-                    &device,
-                    &stream_config,
-                    sender.clone(),
-                    overflow.clone(),
-                    gated.clone(),
-                    config.speech_rms * 0.5,
-                ),
-                cpal::SampleFormat::U16 => build::<u16>(
-                    &device,
-                    &stream_config,
-                    sender.clone(),
-                    overflow.clone(),
-                    gated.clone(),
-                    config.speech_rms * 0.5,
-                ),
-                other => bail!("Microphone sample format {other} is unsupported"),
-            }
-        };
-        // Capture belongs to the engine thread; CPAL already owns the callback
-        // thread. A second thread sleeping just to hold Stream is unnecessary.
-        let stream = if let Some(preferred) = preferred {
-            open(preferred).or_else(|_| open(default))?
-        } else {
-            open(default)?
-        };
-        stream.play()?;
-        Ok(Self {
-            _stream: stream,
-            gated,
-            overflow,
-        })
-    }
-    pub fn set_wake_delivery(&self, enabled: bool) {
-        self.gated.store(enabled, Ordering::Relaxed);
-    }
-}
+mod capture;
+mod devices;
+mod probe;
+pub use capture::{Capture, Delivery, DeviceMemory, Input};
 
 /// Exactly one 30 ms detector frame. Inline storage keeps the bounded event
 /// channel allocation-free during capture, including when the main thread is busy.
@@ -145,16 +80,19 @@ fn prefer_native(
     device: &cpal::Device,
     default: &cpal::SupportedStreamConfig,
 ) -> Option<cpal::SupportedStreamConfig> {
-    if default.channels() == 1 && default.sample_rate().0 == RATE as u32 {
+    if default.channels() == 1 && default.sample_rate() == RATE as u32 {
+        #[cfg(windows)]
         return Some(default.clone());
+        #[cfg(target_os = "linux")]
+        return Some(*default);
     }
     device
         .supported_input_configs()
         .ok()?
         .filter(|c| {
             c.channels() == 1
-                && c.min_sample_rate().0 <= RATE as u32
-                && c.max_sample_rate().0 >= RATE as u32
+                && c.min_sample_rate() <= RATE as u32
+                && c.max_sample_rate() >= RATE as u32
                 && matches!(
                     c.sample_format(),
                     cpal::SampleFormat::I16 | cpal::SampleFormat::F32 | cpal::SampleFormat::U16
@@ -165,7 +103,7 @@ fn prefer_native(
             cpal::SampleFormat::F32 => 2,
             _ => 1,
         })
-        .map(|c| c.with_sample_rate(cpal::SampleRate(RATE as u32)))
+        .map(|c| c.with_sample_rate(RATE as u32))
 }
 
 struct FftConverter {
@@ -312,8 +250,9 @@ fn build<T>(
     config: &cpal::StreamConfig,
     sender: SyncSender<Event>,
     overflow: Arc<AtomicBool>,
-    gated: Arc<AtomicBool>,
+    mode: Arc<std::sync::atomic::AtomicU8>,
     threshold: f32,
+    token: u32,
 ) -> Result<cpal::Stream>
 where
     T: cpal::SizedSample,
@@ -323,28 +262,62 @@ where
     if std::env::var_os("WHISPERTYPE_TRACE_AUDIO").is_some() {
         eprintln!(
             "Audio capture: {} Hz, {} channel(s), {}",
-            config.sample_rate.0,
+            config.sample_rate,
             config.channels,
-            if config.sample_rate.0 == RATE as u32 {
+            if config.sample_rate == RATE as u32 {
                 "direct"
             } else {
                 "FFT resampling"
             }
         );
     }
-    let mut converter = Converter::new(config.sample_rate.0 as usize, config.channels as usize)?;
+    let mut converter = Converter::new(config.sample_rate as usize, config.channels as usize)?;
     let mut delivery = FrameDelivery::new(threshold);
     let error_sender = sender.clone();
+    let mut health = probe::Health::new();
+    let mut epoch = 0;
+    #[cfg(target_os = "linux")]
+    let config = *config;
     Ok(device.build_input_stream(
         config,
         move |data: &[T], _| {
+            let state = mode.load(Ordering::Relaxed);
+            if state & capture::RETIRED != 0 {
+                return;
+            }
+            let now = if state & capture::NORMAL == 0 {
+                if state & capture::EPOCH != epoch {
+                    health = probe::Health::new();
+                    epoch = state & capture::EPOCH;
+                }
+                let now = std::time::Instant::now();
+                health.callback(now);
+                Some(now)
+            } else {
+                None
+            };
             converter.process(data, |frame| {
+                if let Some(now) = now {
+                    let signal = health.frame(&frame, now);
+                    if sender
+                        .try_send(Event::Input(Input {
+                            frame,
+                            token,
+                            signal,
+                            epoch,
+                        }))
+                        .is_err()
+                    {
+                        overflow.store(true, Ordering::Relaxed);
+                    }
+                    return;
+                }
                 let emit = |frame| {
                     if sender.try_send(Event::Audio(frame)).is_err() {
                         overflow.store(true, Ordering::Relaxed);
                     }
                 };
-                if gated.load(Ordering::Relaxed) {
+                if state & capture::WAKE != 0 {
                     delivery.process(frame, true, emit);
                 } else {
                     // Keep recording on the original direct-delivery path.
@@ -355,7 +328,10 @@ where
             });
         },
         move |err| {
-            let _ = error_sender.try_send(Event::Fault(format!("Microphone: {err}")));
+            let _ = error_sender.try_send(Event::InputFault {
+                token,
+                message: err.to_string(),
+            });
         },
         None,
     )?)

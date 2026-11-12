@@ -9,11 +9,15 @@ This file lists dependencies in the resolved Cargo graph, including build/test a
 Windows networking uses the system WinHTTP/Schannel libraries through windows-sys;
 SHA-256 and secure random bytes use Windows CNG. Windows release builds do not
 link ureq, rustls, ring or bundled root certificates. Their notices below remain
-applicable to the Linux build. No additional crate package was introduced.
+applicable to the Linux build. The networking change introduced no new crate package.
+
+Microphone fallback updates CPAL and its platform dependencies for stable device
+identities and explicit Linux audio-server sources. Updated versions and added
+package notices are recorded below.
 
 
 ========================================================================
-alsa 0.9.1 — Apache-2.0/MIT
+alsa 0.11.0 — Apache-2.0/MIT
 https://github.com/diwic/alsa-rs
 
 LICENSE-APACHE
@@ -221,7 +225,7 @@ SOFTWARE.
 
 
 ========================================================================
-alsa-sys 0.3.1 — MIT
+alsa-sys 0.4.0 — MIT
 https://github.com/diwic/alsa-sys
 
 LICENSE
@@ -7042,7 +7046,7 @@ DEALINGS IN THE SOFTWARE.
 
 
 ========================================================================
-coreaudio-rs 0.13.0 — MIT/Apache-2.0
+coreaudio-rs 0.14.2 — MIT/Apache-2.0
 https://github.com/RustAudio/coreaudio-rs.git
 
 LICENSE-APACHE
@@ -7278,7 +7282,7 @@ DEALINGS IN THE SOFTWARE.
 
 
 ========================================================================
-cpal 0.16.0 — Apache-2.0
+cpal 0.17.3, 0.18.2 — Apache-2.0
 https://github.com/rustaudio/cpal
 
 LICENSE
@@ -16356,7 +16360,7 @@ DEALINGS IN THE SOFTWARE.
 
 
 ========================================================================
-jni 0.21.1 — MIT/Apache-2.0
+jni 0.21.1, 0.22.4 — MIT/Apache-2.0
 https://github.com/jni-rs/jni-rs
 
 LICENSE-APACHE
@@ -18810,7 +18814,7 @@ DEALINGS IN THE SOFTWARE.
 
 
 ========================================================================
-mach2 0.4.3 — BSD-2-Clause OR MIT OR Apache-2.0
+mach2 0.5.0, 0.6.0 — Apache-2.0
 https://github.com/JohnTitor/mach2
 
 LICENSE-APACHE
@@ -38875,7 +38879,7 @@ winapi-x86_64-pc-windows-gnu 0.4.0 — MIT/Apache-2.0
 https://github.com/retep998/winapi-rs
 
 ========================================================================
-windows 0.54.0 — MIT OR Apache-2.0
+windows 0.62.2 — Apache-2.0
 https://github.com/microsoft/windows-rs
 
 license-apache-2.0
@@ -39107,7 +39111,7 @@ license-mit
 
 
 ========================================================================
-windows-core 0.54.0 — MIT OR Apache-2.0
+windows-core 0.62.2 — Apache-2.0
 https://github.com/microsoft/windows-rs
 
 license-apache-2.0
@@ -39571,7 +39575,7 @@ license-mit
 
 
 ========================================================================
-windows-result 0.1.2 — MIT OR Apache-2.0
+windows-result 0.4.1 — Apache-2.0
 https://github.com/microsoft/windows-rs
 
 license-apache-2.0
@@ -47778,3 +47782,72 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+
+========================================================================
+Capture dependency additions (Windows CPAL 0.17.3; Linux CPAL 0.18.2)
+Apache-2.0 is selected where an alternative license is offered.
+The complete Apache-2.0 license reproduced elsewhere in this file also
+applies to the following packages:
+
+block2 0.6.2 — MIT
+https://github.com/madsmtm/objc2
+Copyright 2026 Mads Marquart
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+jni-macros 0.22.4 — Apache-2.0
+https://github.com/jni-rs/jni-rs
+
+objc2-avf-audio 0.3.2 — Apache-2.0
+https://github.com/madsmtm/objc2
+
+simd_cesu8 1.2.0 — Apache-2.0
+https://github.com/seancroach/simd_cesu8
+
+simdutf8 0.1.5 — Apache-2.0
+https://github.com/rusticstuff/simdutf8
+
+windows-collections 0.3.2 — Apache-2.0
+https://github.com/microsoft/windows-rs
+
+windows-future 0.3.2 — Apache-2.0
+https://github.com/microsoft/windows-rs
+
+windows-implement 0.60.2 — Apache-2.0
+https://github.com/microsoft/windows-rs
+
+windows-interface 0.59.3 — Apache-2.0
+https://github.com/microsoft/windows-rs
+
+windows-numerics 0.3.1 — Apache-2.0
+https://github.com/microsoft/windows-rs
+
+windows-strings 0.5.1 — Apache-2.0
+https://github.com/microsoft/windows-rs
+
+windows-threading 0.2.1 — Apache-2.0
+https://github.com/microsoft/windows-rs

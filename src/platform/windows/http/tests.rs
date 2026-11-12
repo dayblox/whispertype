@@ -183,9 +183,11 @@ fn redirects_are_optional_and_truncated_uploads_fail() {
         serving.join().unwrap();
     }
     let (server, url) = listener();
+    let (release, held) = std::sync::mpsc::channel::<()>();
     let serving = thread::spawn(move || {
-        let (mut stream, _) = server.accept().unwrap();
-        headers(&mut stream);
+        let (_stream, _) = server.accept().unwrap();
+        // Hold TCP open so an unrelated peer close cannot mask the short body.
+        let _ = held.recv_timeout(Duration::from_secs(3));
     });
     let mut client = Client::new().unwrap();
     let mut request = client
@@ -202,6 +204,8 @@ fn redirects_are_optional_and_truncated_uploads_fail() {
         request.send(&b"short"[..], 10).unwrap_err().kind(),
         io::ErrorKind::UnexpectedEof
     );
+    drop(request);
+    let _ = release.send(());
     serving.join().unwrap();
 }
 

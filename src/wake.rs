@@ -144,16 +144,34 @@ pub fn diagnose(paths: &Paths, report_path: &Path, input: Option<&Path>) -> Resu
             return Ok(());
         }
         let (sender, receiver) = mpsc::sync_channel(64);
-        let capture = audio::Capture::start(&config, sender)?;
+        let mut memory = audio::DeviceMemory::default();
+        let mut capture = audio::Capture::remembered(&config, sender.clone(), &mut memory)?;
         let until = Instant::now() + Duration::from_secs(10);
         let mut samples = Vec::with_capacity(audio::RATE * 11);
         while Instant::now() < until {
             match receiver.recv_timeout(Duration::from_millis(200)) {
                 Ok(Event::Audio(frame)) => samples.extend_from_slice(&frame),
-                Ok(Event::Fault(error)) => anyhow::bail!(error),
+                Ok(Event::Input(input)) => {
+                    match capture.input(&input, &config, sender.clone(), &mut memory, true) {
+                        audio::Delivery::Ignore => (),
+                        audio::Delivery::Primary
+                        | audio::Delivery::ChosenPrimary
+                        | audio::Delivery::PendingPrimary => {
+                            samples.extend_from_slice(&input.frame)
+                        }
+                        audio::Delivery::Candidate(prefix) => {
+                            samples = prefix;
+                            samples.extend_from_slice(&input.frame);
+                        }
+                    }
+                }
+                Ok(Event::InputFault { token, message }) => {
+                    capture.fault(token, &message, &config, sender.clone())
+                }
                 _ => (),
             }
         }
+        capture.finish(&mut samples);
         drop(capture);
         crate::config::private_write(&report_path.with_extension("wav"), &audio::wav(&samples)?)?;
         samples

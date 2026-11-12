@@ -28,6 +28,7 @@ parser.add_argument('--wake-model', type=pathlib.Path, default=pathlib.Path(os.e
 parser.add_argument('--seconds', type=float, default=15)
 parser.add_argument('--warmup', type=float, default=3)
 parser.add_argument('--trials', type=int, default=3)
+parser.add_argument('--microphone', help='Optional existing microphone name substring for matched working-input comparisons')
 parser.add_argument('--states', nargs='+', choices=['shortcut_idle', 'shortcut_recording',
     'wake_listening', 'wake_recording', 'idle_after_capture'],
     help='Optional subset for experiments; omit for the full comparison')
@@ -103,7 +104,10 @@ for trial in range(args.trials):
     with tempfile.TemporaryDirectory(prefix='whispertype-efficiency-') as folder:
         profile = pathlib.Path(folder).resolve()
         assert profile.parent == pathlib.Path(tempfile.gettempdir()).resolve()
-        (profile / 'config.toml').write_text('shortcut = "CTRL + ALT + SHIFT + F24"\nmax_seconds = 120\n')
+        config = 'shortcut = "CTRL + ALT + SHIFT + F24"\nmax_seconds = 120\n'
+        if args.microphone:
+            config += 'microphone = ' + json.dumps(args.microphone, ensure_ascii=False) + '\n'
+        (profile / 'config.toml').write_text(config, encoding='utf-8')
         shutil.copyfile(args.wake_model, profile / 'wake.rpw')
         env = dict(os.environ, WHISPERTYPE_HOME=str(profile), WHISPERTYPE_PROFILE='1', WHISPERTYPE_TRACE_AUDIO='1')
         env.pop('GROQ_API_KEY', None)
@@ -198,6 +202,7 @@ for state in dict.fromkeys(p['state'] for p in samples):
 with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'HARDWARE\DESCRIPTION\System\CentralProcessor\0') as key:
     cpu = winreg.QueryValueEx(key, 'ProcessorNameString')[0].strip()
 report = dict(label=args.label, os=platform.platform(), cpu=cpu, logical_cpus=os.cpu_count(),
+    microphone=args.microphone,
     executable_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(), executable_bytes=binary.stat().st_size,
     sample_seconds=args.seconds, warmup_seconds=args.warmup, trials=args.trials,
     methodology='Same compiler/settings and common profiling hooks. Production capture/recording/detector paths; only automatic submission is suppressed. App-only, excluding Windows audio services and any other installed instance. Ambient room; no artificial working-set trimming. CPU is percent of one logical core; cycles are frequency-dependent. No audio saved or uploaded.',

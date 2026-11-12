@@ -28,9 +28,13 @@ pub enum Event {
         at: Instant,
     },
     Audio(audio::Frame),
+    Input(audio::Input),
+    InputFault {
+        token: u32,
+        message: String,
+    },
     #[cfg(windows)]
     Cancel,
-    Fault(String),
     Result(u64, Transcript),
     Shortcut(String),
     Startup(Result<bool, String>),
@@ -80,6 +84,7 @@ pub fn valid_command(s: &str) -> bool {
 struct Recording {
     samples: Vec<i16>,
     started: Instant,
+    live_started: Instant,
     silence: usize,
     voiced: bool,
     wake: bool,
@@ -97,6 +102,7 @@ struct Engine {
     sender: SyncSender<Event>,
     activation: Activation,
     capture: Option<Capture>,
+    device_memory: audio::DeviceMemory,
     detector: Option<Box<wake::Detector>>,
     wake: bool,
     recording: Option<Recording>,
@@ -140,6 +146,7 @@ pub fn run(paths: Paths) -> Result<()> {
         sender,
         activation: Activation::default(),
         capture: None,
+        device_memory: audio::DeviceMemory::default(),
         detector: None,
         wake: false,
         recording: None,
@@ -179,11 +186,11 @@ pub fn run(paths: Paths) -> Result<()> {
                 Ok(())
             }
             Ok(Event::Audio(samples)) => app.audio(samples),
-            Ok(Event::Fault(message)) => {
-                app.wake = false;
-                app.config.wake_enabled = false;
-                app.cancel();
-                app.error(&message);
+            Ok(Event::Input(input)) => app.input(input),
+            Ok(Event::InputFault { token, message }) => {
+                if let Some(capture) = &mut app.capture {
+                    capture.fault(token, &message, &app.config, app.sender.clone());
+                }
                 Ok(())
             }
             Ok(Event::Result(id, result)) => app.completed(id, result),
@@ -307,9 +314,17 @@ impl Engine {
     }
     fn ensure_capture(&mut self, wake_only: bool) -> Result<()> {
         if self.capture.is_none() {
-            self.capture = Some(Capture::start(&self.config, self.sender.clone())?);
+            self.capture = Some(Capture::remembered(
+                &self.config,
+                self.sender.clone(),
+                &mut self.device_memory,
+            )?);
         }
-        self.capture.as_ref().unwrap().set_wake_delivery(wake_only);
+        let capture = self.capture.as_mut().unwrap();
+        if !wake_only {
+            capture.prepare_recording(&self.config, self.sender.clone());
+        }
+        capture.set_wake_delivery(wake_only);
         Ok(())
     }
     fn release_capture(&mut self) {
@@ -377,9 +392,11 @@ impl Engine {
             "Add your Groq API key first (whispertype set-key)"
         );
         self.ensure_capture(false)?;
+        let started = Instant::now();
         self.recording = Some(Recording {
             samples: Vec::with_capacity(RATE * 2),
-            started: Instant::now(),
+            started,
+            live_started: started,
             silence: 0,
             voiced: false,
             wake,
@@ -402,9 +419,12 @@ impl Engine {
             self.release_capture();
             return self.resume();
         }
-        let Some(recording) = self.recording.take() else {
+        let Some(mut recording) = self.recording.take() else {
             return Ok(());
         };
+        if let Some(capture) = &mut self.capture {
+            capture.finish(&mut recording.samples);
+        }
         self.activation.reset();
         self.release_capture();
         let Some(range) = audio::speech_range(&recording.samples, self.config.speech_rms) else {
@@ -708,6 +728,9 @@ impl Engine {
         }
     }
     fn audio(&mut self, samples: audio::Frame) -> Result<()> {
+        if self.capture.as_ref().is_none_or(|c| !c.selected()) {
+            return self.pending_audio(&samples);
+        }
         if self.profiling {
             self.audio_events += 1;
         }
@@ -742,7 +765,7 @@ impl Engine {
                 || recording.wake
                     && ((recording.voiced
                         && recording.silence >= RATE * self.config.silence_ms as usize / 1000)
-                        || !recording.voiced && recording.started.elapsed().as_secs() >= 5);
+                        || !recording.voiced && recording.live_started.elapsed().as_secs() >= 5);
             if finish && !self.profiling {
                 self.finish()?;
             }
@@ -754,6 +777,58 @@ impl Engine {
             }
         }
         Ok(())
+    }
+    fn pending_audio(&mut self, samples: &audio::Frame) -> Result<()> {
+        if let Some(recording) = &mut self.recording {
+            audio::append_recording(
+                &mut recording.samples,
+                samples,
+                self.config.max_seconds as usize * RATE,
+            );
+            if recording.samples.len() >= self.config.max_seconds as usize * RATE && !self.profiling
+            {
+                self.finish()?;
+            }
+        }
+        Ok(())
+    }
+    fn input(&mut self, input: audio::Input) -> Result<()> {
+        let Some(capture) = &mut self.capture else {
+            return Ok(());
+        };
+        match capture.input(
+            &input,
+            &self.config,
+            self.sender.clone(),
+            &mut self.device_memory,
+            self.recording.is_some(),
+        ) {
+            audio::Delivery::Ignore => Ok(()),
+            audio::Delivery::PendingPrimary => self.pending_audio(&input.frame),
+            audio::Delivery::Primary => self.audio(input.frame),
+            audio::Delivery::ChosenPrimary => {
+                if let Some(recording) = &mut self.recording {
+                    recording.live_started = Instant::now();
+                }
+                self.audio(input.frame)
+            }
+            audio::Delivery::Candidate(prefix) => {
+                if let Some(recording) = &mut self.recording {
+                    if prefix.is_empty() {
+                        recording.samples.clear();
+                    } else {
+                        recording.samples = prefix;
+                    }
+                    recording.silence = 0;
+                    recording.voiced = false;
+                    recording.live_started = Instant::now();
+                }
+                if let Some(detector) = &mut self.detector {
+                    detector.reset();
+                }
+                self.audio(input.frame)
+            }
+        }
     }
     fn begin_enrollment(&mut self) -> Result<()> {
         if self.recording.is_some() || self.job.is_some() {

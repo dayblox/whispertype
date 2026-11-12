@@ -1,6 +1,6 @@
 [package]
 name = "whispertype"
-version = "0.1.11"
+version = "0.1.12"
 edition = "2021"
 license = "MIT"
 description = "Quiet, native voice typing with Groq Whisper for Windows and Linux"
@@ -8,7 +8,6 @@ description = "Quiet, native voice typing with Groq Whisper for Windows and Linu
 [dependencies]
 anyhow = "1"
 bytemuck = "1"
-cpal = "0.16"
 directories = "6"
 fs2 = "0.4"
 hound = "3.5"
@@ -22,6 +21,7 @@ semver = "1"
 toml = "0.8"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+cpal = "=0.18.2"
 ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
 async-io = "2"
 ksni = { version = "0.3.3", default-features = false, features = ["async-io"] }
@@ -31,6 +31,8 @@ wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 xkbcommon = "0.8"
 
 [target.'cfg(windows)'.dependencies]
+cpal = "=0.17.3"
+windows = { version = "0.62.2", features = ["Win32_Devices_Properties", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
 windows-sys = { version = "0.61", features = ["Win32_Networking_WinHttp", "Win32_Security_Cryptography", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Controls", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_Security", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_Storage_Xps", "Win32_Storage_FileSystem"] }
 
 [profile.release]
