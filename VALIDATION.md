@@ -7,6 +7,18 @@ not supplied during development.
 
 ## Completed checks
 
+- v0.1.8 Windows interaction changes: **40 functional tests pass**, plus the
+  opt-in desktop smoke test. Escape hook tests cover idle pass-through, active
+  cancellation, held-key repeat/release after cancellation, and injected-key
+  pass-through. Desktop checks receive exactly one cancellation event for a
+  held Escape press. A real native menu test filters mouse/Enter selections
+  without ending tracking, updates startup/mode/shortcut checkmarks on the
+  same menu handles, ignores outside hits, exits through the menu's normal
+  Escape handling, and verifies the menu is destroyed on dismissal.
+  The release hook check reports zero Rust heap allocations across 40,000
+  inactive/unmatched key events. Three before/after initial-idle samples record
+  zero CPU cycles and unchanged median handle count; the small memory deltas
+  and measurement limits are in `benchmarks/windows-interaction-efficiency.md`.
 - v0.1.7 update/form changes: **37 Windows functional tests pass**, with seven
   opt-in checks; two vendored MFCC/DTW equivalence tests also pass. The full
   Windows build, Clippy, native executable checks, package/release tests and

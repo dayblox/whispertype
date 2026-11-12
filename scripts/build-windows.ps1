@@ -26,6 +26,7 @@ try {
         Invoke-Cargo -Arguments @('test', '--release', '--locked', 'optimization_benchmark', '--', '--ignored', '--nocapture', '--test-threads=1')
         Invoke-Cargo -Arguments @('test', '--release', '--locked', 'unicode_insertion_benchmark', '--', '--ignored', '--nocapture', '--test-threads=1')
         Invoke-Cargo -Arguments @('test', '--release', '--locked', 'update_download_allocations', '--', '--ignored', '--nocapture', '--test-threads=1')
+        Invoke-Cargo -Arguments @('test', '--release', '--locked', 'inactive_keyboard_hook_allocates_nothing', '--', '--ignored', '--nocapture', '--test-threads=1')
     }
     if ($DesktopTests) {
         Invoke-Cargo -Arguments @('test', '--locked', 'windows_desktop_smoke', '--', '--ignored', '--nocapture', '--test-threads=1')

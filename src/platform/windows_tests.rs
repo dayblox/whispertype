@@ -436,12 +436,154 @@ fn windows_desktop_smoke() {
         ));
         assert!(rx.try_recv().is_err());
         send("cancel").unwrap();
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Event::Cancel
+        ));
+        desktop.update(Snapshot {
+            config: config.clone(),
+            state: "recording".into(),
+            wake: false,
+            startup: false,
+            enrollment: None,
+        });
+        let escape = KBDLLHOOKSTRUCT {
+            vkCode: VK_ESCAPE as u32,
+            ..zeroed()
+        };
+        for message in [WM_KEYDOWN, WM_KEYDOWN, WM_KEYUP] {
+            assert_eq!(
+                keyboard_hook(
+                    HC_ACTION as i32,
+                    message as usize,
+                    &escape as *const _ as isize
+                ),
+                1
+            );
+        }
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Event::Cancel
+        ));
         assert!(
-            matches!(rx.recv_timeout(Duration::from_secs(1)).unwrap(), Event::Command(s) if s == "cancel")
+            rx.try_recv().is_err(),
+            "Escape repeat sent duplicate cancellations"
+        );
+        desktop.update(Snapshot {
+            config: config.clone(),
+            state: "idle".into(),
+            wake: false,
+            startup: false,
+            enrollment: None,
+        });
+        assert_eq!(
+            keyboard_hook(
+                HC_ACTION as i32,
+                WM_KEYDOWN as usize,
+                &escape as *const _ as isize
+            ),
+            0
         );
         assert!(send("invalid").is_err());
         drop(desktop);
         assert!(FindWindowW(wide(CLASS).as_ptr(), null()).is_null());
         println!("Native tray lifecycle, hook tap/repeat/release, IPC, Unicode SendInput, and non-activating indicator passed.");
+    }
+}
+
+#[test]
+fn escape_is_consumed_only_during_an_operation_and_until_its_keyup() {
+    unsafe {
+        let escape = KBDLLHOOKSTRUCT {
+            vkCode: VK_ESCAPE as u32,
+            ..zeroed()
+        };
+        CANCELLABLE.store(false, Ordering::Relaxed);
+        ESCAPE_DOWN.with(|held| held.set(false));
+        assert_eq!(
+            keyboard_hook(
+                HC_ACTION as i32,
+                WM_KEYDOWN as usize,
+                &escape as *const _ as isize
+            ),
+            0
+        );
+        CANCELLABLE.store(true, Ordering::Relaxed);
+        assert_eq!(
+            keyboard_hook(
+                HC_ACTION as i32,
+                WM_KEYDOWN as usize,
+                &escape as *const _ as isize
+            ),
+            1
+        );
+        CANCELLABLE.store(false, Ordering::Relaxed);
+        assert_eq!(
+            keyboard_hook(
+                HC_ACTION as i32,
+                WM_KEYDOWN as usize,
+                &escape as *const _ as isize
+            ),
+            1
+        );
+        assert_eq!(
+            keyboard_hook(
+                HC_ACTION as i32,
+                WM_KEYUP as usize,
+                &escape as *const _ as isize
+            ),
+            1
+        );
+        assert_eq!(
+            keyboard_hook(
+                HC_ACTION as i32,
+                WM_KEYDOWN as usize,
+                &escape as *const _ as isize
+            ),
+            0
+        );
+        CANCELLABLE.store(true, Ordering::Relaxed);
+        let injected = KBDLLHOOKSTRUCT {
+            flags: LLKHF_INJECTED,
+            ..escape
+        };
+        assert_eq!(
+            keyboard_hook(
+                HC_ACTION as i32,
+                WM_KEYDOWN as usize,
+                &injected as *const _ as isize
+            ),
+            0
+        );
+        assert!(!ESCAPE_DOWN.with(Cell::get));
+        CANCELLABLE.store(false, Ordering::Relaxed);
+    }
+}
+
+#[test]
+#[ignore = "Offline hook allocation check; run alone with --test-threads=1"]
+fn inactive_keyboard_hook_allocates_nothing() {
+    unsafe {
+        CANCELLABLE.store(false, Ordering::Relaxed);
+        ESCAPE_DOWN.with(|held| held.set(false));
+        let letter = KBDLLHOOKSTRUCT {
+            vkCode: 0x47,
+            ..zeroed()
+        };
+        let escape = KBDLLHOOKSTRUCT {
+            vkCode: VK_ESCAPE as u32,
+            ..zeroed()
+        };
+        let (allocations, peak) = crate::audio::test_allocations(|| {
+            for _ in 0..10_000 {
+                for key in [&letter, &escape] {
+                    for message in [WM_KEYDOWN, WM_KEYUP] {
+                        keyboard_hook(HC_ACTION as i32, message as usize, key as *const _ as isize);
+                    }
+                }
+            }
+        });
+        assert_eq!((allocations, peak), (0, 0));
+        println!("40,000 inactive/unmatched hook events: zero Rust heap allocations; no snapshot locks, worker or timer.");
     }
 }

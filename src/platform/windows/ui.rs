@@ -372,6 +372,19 @@ pub(super) unsafe fn dialog_message(message: &MSG) -> bool {
     !window.is_null() && IsDialogMessageW(window, message) != 0
 }
 
+pub(super) unsafe fn prompt_has_focus() -> bool {
+    let window = GetForegroundWindow();
+    if window.is_null() || GetWindowLongPtrW(window, GWLP_USERDATA) != PROMPT_ROLE {
+        return false;
+    }
+    let mut class = [0u16; 64];
+    let n = GetClassNameW(window, class.as_mut_ptr(), class.len() as i32);
+    class[..n.max(0) as usize]
+        .iter()
+        .copied()
+        .eq(UI_CLASS.encode_utf16())
+}
+
 unsafe fn apply_enrollment_view(window: HWND, view: &crate::enrollment::View) {
     SetWindowTextW(GetDlgItem(window, TEXT), wide(&view.text).as_ptr());
     SetWindowTextW(

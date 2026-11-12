@@ -1,6 +1,12 @@
 # Optimization pass — November 11, 2026
 
 The standing RAM/CPU requirements for future work are in `AGENTS.md`.
+Windows Escape cancellation reuses the existing keyboard hook and bounded
+engine queue, with an allocation-free cancellation event. Idle/unmatched keys
+do not lock the snapshot. Persistent tray selections use a thread-local native
+menu filter installed only while the menu is open and removed immediately on
+dismissal. Checkmarks redraw on state-change messages; there is no polling,
+retained menu window, additional idle thread, or new timer.
 On-demand Windows updates stream to disk through one fixed 64 KiB buffer and
 reuse the existing TLS stack's SHA-256 implementation. Networking remains in
 the short-lived update helper; the tray adds no polling or timers. A staged

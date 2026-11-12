@@ -1,0 +1,73 @@
+{
+  "label": "after-escape-menu",
+  "os": "Windows-11-10.0.26100-SP0",
+  "cpu": "Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz",
+  "logical_cpus": 8,
+  "executable_sha256": "b5d36e0837f3dc2562ac96a704b2a14069957da17f9a89fabd79ee727d1ef579",
+  "executable_bytes": 4079616,
+  "sample_seconds": 5.0,
+  "warmup_seconds": 1.0,
+  "trials": 3,
+  "methodology": "Same compiler/settings and common profiling hooks. Production capture/recording/detector paths; only automatic submission is suppressed. App-only, excluding Windows audio services and any other installed instance. Ambient room; no artificial working-set trimming. CPU is percent of one logical core; cycles are frequency-dependent. No audio saved or uploaded.",
+  "audio_trace": [
+    "Audio capture: 48000 Hz, 2 channel(s), FFT resampling\nAudio capture: 48000 Hz, 2 channel(s), FFT resampling",
+    "Audio capture: 48000 Hz, 2 channel(s), FFT resampling\nAudio capture: 48000 Hz, 2 channel(s), FFT resampling",
+    "Audio capture: 48000 Hz, 2 channel(s), FFT resampling\nAudio capture: 48000 Hz, 2 channel(s), FFT resampling"
+  ],
+  "summary": {
+    "shortcut_idle": {
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 0.0,
+      "private_bytes": 1904640.0,
+      "working_set_bytes": 11227136.0,
+      "peak_working_set_bytes": 11227136,
+      "audio_events_per_second": 0.0,
+      "handles": 160.0,
+      "cpu_range": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "samples": [
+    {
+      "trial": 1,
+      "state": "shortcut_idle",
+      "elapsed_seconds": 5.000501300004544,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 0.0,
+      "private_bytes": 1904640.0,
+      "working_set_bytes": 11227136.0,
+      "peak_working_set_bytes": 11227136,
+      "handles": 160.0,
+      "audio_events_per_second": 0.0,
+      "recording_capacity_bytes": 0
+    },
+    {
+      "trial": 2,
+      "state": "shortcut_idle",
+      "elapsed_seconds": 5.000298000006296,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 0.0,
+      "private_bytes": 1908736.0,
+      "working_set_bytes": 11227136.0,
+      "peak_working_set_bytes": 11227136,
+      "handles": 160.0,
+      "audio_events_per_second": 0.0,
+      "recording_capacity_bytes": 0
+    },
+    {
+      "trial": 3,
+      "state": "shortcut_idle",
+      "elapsed_seconds": 5.000337099998433,
+      "cpu_percent_one_core": 0.0,
+      "cycles_per_second": 0.0,
+      "private_bytes": 1900544.0,
+      "working_set_bytes": 11223040.0,
+      "peak_working_set_bytes": 11223040,
+      "handles": 160.0,
+      "audio_events_per_second": 0.0,
+      "recording_capacity_bytes": 0
+    }
+  ]
+}

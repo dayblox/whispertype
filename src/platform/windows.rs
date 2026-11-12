@@ -22,6 +22,7 @@ use windows_sys::Win32::{
     System::{LibraryLoader::GetModuleHandleW, Registry::*},
     UI::{Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
 };
+mod tray_menu;
 mod ui;
 mod upgrade;
 pub use upgrade::stop_for_upgrade;
@@ -49,6 +50,10 @@ static SENDER: OnceLock<SyncSender<Event>> = OnceLock::new();
 static SNAPSHOT: OnceLock<Mutex<Snapshot>> = OnceLock::new();
 static CAPTURE: AtomicBool = AtomicBool::new(false);
 static DOWN: AtomicBool = AtomicBool::new(false);
+static CANCELLABLE: AtomicBool = AtomicBool::new(false);
+thread_local! {
+    static ESCAPE_DOWN: Cell<bool> = const { Cell::new(false) };
+}
 static HOTKEY: AtomicU32 = AtomicU32::new(VK_SPACE as u32);
 static MODIFIERS: AtomicU32 = AtomicU32::new(1);
 static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
@@ -72,6 +77,7 @@ fn event(command: &str) {
                 down: false,
                 at: std::time::Instant::now(),
             },
+            "cancel" => Event::Cancel,
             _ => Event::Command(command.into()),
         };
         let _ = s.try_send(event);
@@ -144,6 +150,13 @@ impl Desktop {
         })
     }
     pub fn update(&self, snapshot: Snapshot) {
+        CANCELLABLE.store(
+            matches!(
+                snapshot.state.as_str(),
+                "recording" | "transcribing" | "enrolling"
+            ),
+            Ordering::Relaxed,
+        );
         if let Some(s) = SNAPSHOT.get() {
             *s.lock().unwrap() = snapshot;
         }
@@ -207,7 +220,7 @@ unsafe extern "system" fn window_proc(window: HWND, msg: u32, w: WPARAM, l: LPAR
     match msg {
         CALLBACK => {
             if matches!(l as u32, WM_RBUTTONUP | WM_LBUTTONUP) {
-                menu(window);
+                tray_menu::show(window);
             }
             0
         }
@@ -217,6 +230,11 @@ unsafe extern "system" fn window_proc(window: HWND, msg: u32, w: WPARAM, l: LPAR
                 eprintln!("Indicator unavailable: {error:#}");
             }
             ui::sync_enrollment();
+            tray_menu::refresh();
+            0
+        }
+        WM_MENUSELECT => {
+            tray_menu::select(w, l);
             0
         }
         NOTICE => {
@@ -390,50 +408,6 @@ unsafe fn create_menu(s: &Snapshot) -> HMENU {
     append(root, 41, "Quit", false);
     root
 }
-unsafe fn menu(window: HWND) {
-    let s = SNAPSHOT.get().unwrap().lock().unwrap().clone();
-    let root = create_menu(&s);
-    let mut point: POINT = zeroed();
-    GetCursorPos(&mut point);
-    SetForegroundWindow(window);
-    let selected = TrackPopupMenu(
-        root,
-        TPM_RETURNCMD | TPM_RIGHTBUTTON,
-        point.x,
-        point.y,
-        0,
-        window,
-        null(),
-    );
-    DestroyMenu(root);
-    PostMessageW(window, WM_NULL, 0, 0);
-    let command = match selected {
-        10 => "shortcut-capture",
-        11 => "shortcut:CTRL + SPACE",
-        12 => "shortcut:CTRL + ALT + SPACE",
-        13 => "shortcut:SUPER + ALT + SPACE",
-        14 => "shortcut:F9",
-        20 => "mode:auto",
-        21 => "mode:hold",
-        22 => "mode:toggle",
-        30 => {
-            if s.wake {
-                "wake-off"
-            } else {
-                "wake-on"
-            }
-        }
-        31 => "enroll",
-        41 => "quit",
-        42 => "check-updates",
-        43 => "startup-toggle",
-        44 => "prompt-edit",
-        45 => "wake-test",
-        _ => return,
-    };
-    event(command);
-}
-
 fn vk(shortcut: &Shortcut) -> u32 {
     match shortcut.key.as_str() {
         "SPACE" => VK_SPACE as u32,
@@ -497,6 +471,25 @@ unsafe extern "system" fn keyboard_hook(code: i32, w: WPARAM, l: LPARAM) -> LRES
         }
     } else {
         // The hook sees every key: unmatched keys must avoid locks and allocation.
+        if key.vkCode == VK_ESCAPE as u32 {
+            if up && ESCAPE_DOWN.with(|pressed| pressed.replace(false)) {
+                return 1;
+            }
+            if down
+                && (ESCAPE_DOWN.with(Cell::get)
+                    || (CANCELLABLE.load(Ordering::Relaxed) && !ui::prompt_has_focus()))
+            {
+                if !ESCAPE_DOWN.with(|pressed| pressed.replace(true)) {
+                    event("cancel");
+                    // Escape also dismisses an open native menu. Subsequent
+                    // key repeats are swallowed until the physical release.
+                    if tray_menu::is_open() {
+                        EndMenu();
+                    }
+                }
+                return 1;
+            }
+        }
         if key.vkCode == HOTKEY.load(Ordering::Relaxed) {
             if up && DOWN.swap(false, Ordering::Relaxed) {
                 event("release");

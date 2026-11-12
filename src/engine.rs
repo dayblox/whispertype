@@ -28,6 +28,8 @@ pub enum Event {
         at: Instant,
     },
     Audio(audio::Frame),
+    #[cfg(windows)]
+    Cancel,
     Fault(String),
     Result(u64, Transcript),
     Shortcut(String),
@@ -168,6 +170,11 @@ pub fn run(paths: Paths) -> Result<()> {
             Ok(Event::Command(command)) => app.command(&command),
             Ok(Event::Key { down, at }) => {
                 app.command_at(if down { "press" } else { "release" }, at)
+            }
+            #[cfg(windows)]
+            Ok(Event::Cancel) => {
+                app.cancel();
+                Ok(())
             }
             Ok(Event::Audio(samples)) => app.audio(samples),
             Ok(Event::Fault(message)) => {
