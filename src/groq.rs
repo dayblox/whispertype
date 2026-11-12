@@ -469,6 +469,17 @@ mod tests {
                     #[cfg(not(windows))]
                     assert!(result.unwrap_err().to_string().contains("HTTP 407"));
                 }
+                302 => {
+                    #[cfg(windows)]
+                    assert!(result.unwrap_err().to_string().contains("HTTP 302"));
+                    // ureq returns 3xx responses when redirects are disabled;
+                    // preserve Linux's existing response parsing behavior.
+                    #[cfg(target_os = "linux")]
+                    assert!(result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("Groq response has no text"));
+                }
                 _ => assert!(result
                     .unwrap_err()
                     .to_string()

@@ -13,7 +13,7 @@ The machine has direct WinHTTP access, without a configured corporate proxy.
 
 Reduction: 1,251,840 bytes (30.7%). Baseline SHA-256:
 `87c59e0c4c029e4e13dc0dea57547c039313fe7a438607eb9a647a8b560ef964`.
-Measured implementation SHA-256 (before the v0.1.10 release version bump):
+Measured implementation SHA-256 (before the v0.1.11 release version bump):
 `505334d9cdd4327d1b24a8fb43e714a515d443f22e472255cf747d59f0a023ca`.
 The resource profiles identify that pre-release-version executable. The release
 version bump changes version metadata and the HTTP User-Agent. Release URLs
