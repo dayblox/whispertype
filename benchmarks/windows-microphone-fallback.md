@@ -63,21 +63,26 @@ the final Windows executable and records its SHA-256.
 
 The healthy committed callback uses direct delivery and the existing wake
 gate. It performs no peak scan, clock read, new allocation or device query.
-Startup/probing scans one existing 480-sample frame for peak magnitude; the
-dead decision starts at the first native callback and waits at least 300 ms.
+Startup/probing scans one existing 480-sample frame for peak magnitude. Since
+the November 13 warm-up fix, the dead decision starts at the first native
+callback and waits at least 300 ms for the primary or two seconds for a candidate.
 There is no probe timer or extra application thread. The existing engine event
 queue remains bounded; probe frames carry source identity and a classification
 epoch so losing streams and earlier wake/recording decisions cannot be reused.
 
-At most two CPAL streams are active. The engine keeps the original recording
+Two CPAL streams remain open during probing; replacement briefly adds a third
+until the new candidate has opened successfully and the old one closes. The
+engine keeps the original recording
 buffer and one candidate buffer, each capped at `max_seconds * 16000` samples.
 That is at most 3,840,000 PCM bytes per buffer at the default 120-second limit,
 or 19,200,000 bytes each at 600 seconds. They grow through the existing bounded
-append routine. A dead candidate is closed before the next opens; its storage
-is reused. Selection immediately closes the other stream and releases unused
-buffers/device enumeration state. Only stable dead IDs and the default-input
+append routine. Candidate storage is reused only after a replacement opens;
+if none opens, the current candidate keeps buffering until capture ends or a
+stream wins. Selection immediately closes the other stream and releases unused
+buffers/device enumeration state. Only stable dead primary IDs and the default-input
 identity can remain after capture closes. A recovered input clears its dead
-entry; a changed default clears the cache at the next capture start.
+entry; a changed default clears the cache at the next capture start. Silent
+candidates are never added to that cache, including after their two-second grace.
 
 Peak <= 2 means digital silence for this heuristic, not proof that hardware is
 disconnected. A quiet DSP/noise-gated primary remains open while candidates are
@@ -107,6 +112,10 @@ behavior; this is not a guarantee for every possible driver, permission state,
 or unavailable audio-server/plugin combination.
 
 ## Validation
+
+The November 13 candidate warm-up fix has separate regression and resource
+evidence in [windows-mic-warmup.md](windows-mic-warmup.md). The results below
+describe the original November 12 fallback implementation.
 
 `scripts/build-windows.ps1 -Installer -Benchmark -MicrophoneTest` passes:
 57 ordinary functional tests, two MFCC/DTW equivalence tests, formatting,

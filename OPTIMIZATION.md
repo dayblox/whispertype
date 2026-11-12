@@ -2,12 +2,17 @@
 
 The standing RAM/CPU requirements for future work are in `AGENTS.md`.
 Microphone fallback classifies startup digital silence from callback frames,
-then bypasses the peak scan after a live stream wins. Probing holds at most
-two CPAL streams and two bounded PCM buffers; losing streams close immediately.
-Only dead device identities can remain between captures. Discovery/default
+then bypasses the peak scan after a live stream wins. The primary starts probing
+after 300 ms; candidates get two seconds from their first native callback.
+Probing holds two CPAL streams and two bounded PCM buffers, with a brief third
+stream while a replacement opens before the old candidate closes. Without a
+replacement, the last candidate stays open until capture ends or a stream wins.
+Only dead primary identities can remain between captures. Discovery/default
 checks are on demand, with no idle poll, listener, helper or new timer. See
 `benchmarks/windows-microphone-fallback.md` for matched working-input profiles,
 the default-device workload change, allocation tests and Linux/hardware limits.
+The November 13 candidate grace/retention fix is measured separately in
+`benchmarks/windows-mic-warmup.md`.
 The November 12 Windows WinHTTP change removes bundled TLS/crypto dependencies
 and warms the existing upload helper at recording start. Native completion
 events enforce request deadlines without a watchdog thread or idle polling.

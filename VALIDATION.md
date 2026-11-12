@@ -7,6 +7,21 @@ not supplied during development.
 
 ## Completed checks
 
+- v0.1.13 candidate warm-up fix (November 13): **60 functional tests**, Clippy, formatting,
+  release/system-DLL verification, update-helper integration, packaging/release
+  checks, Inno Setup compilation, two MFCC/DTW equivalence checks and the native
+  microphone smoke test pass. The primary still triggers probing after 300 ms;
+  candidates get two seconds from their first native callback. Synthetic tests
+  cover 1.1 seconds of zeros followed by a winning live frame with its prefix,
+  the exact two-second boundary, a last candidate remaining open and buffering
+  after exhaustion, energy selection at finish, and recovery after unresolved
+  wake listening becomes a recording. Candidate silence never enters the dead
+  cache. Release checks report zero allocations for 1,000 health frames per
+  source and preserve capture/delivery allocation and bounded-buffer checks.
+  Matched Windows resource profiles and hardware limits are recorded in
+  `benchmarks/windows-mic-warmup.md`. Native Linux execution and the reported
+  Intel DSP warm-up hardware remain unverified here.
+
 - Digital-silence capture fallback: **57 functional tests**, two MFCC/DTW
   equivalence tests, Windows build/Clippy/import/package/installer checks,
   allocation benchmarks and the real microphone smoke test pass. Synthetic

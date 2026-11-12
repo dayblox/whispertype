@@ -9,6 +9,7 @@ pub(super) const WAKE: u8 = 1;
 pub(super) const NORMAL: u8 = 2;
 pub(super) const RETIRED: u8 = 4;
 pub(super) const EPOCH: u8 = 8;
+pub(super) const CANDIDATE: u8 = 16;
 static TOKEN: AtomicU32 = AtomicU32::new(1);
 
 pub struct Input {
@@ -115,6 +116,7 @@ impl Capture {
             sender.clone(),
             overflow.clone(),
             primary_id.clone(),
+            Source::Primary,
         )?;
         let remembered = memory.dead.contains(&primary_id);
         let mut capture = Self {
@@ -151,7 +153,11 @@ impl Capture {
         }
     }
     pub fn prepare_recording(&mut self, config: &Config, sender: SyncSender<Event>) {
-        if self.wake && self.choice.chosen.is_none() && self.exhausted {
+        if self.wake
+            && self.choice.chosen.is_none()
+            && self.exhausted
+            && self.probe.as_ref().is_none_or(|p| p.extra.is_none())
+        {
             self.probe = None;
             self.exhausted = false;
             self.next(config, sender);
@@ -178,7 +184,6 @@ impl Capture {
             });
         }
         let probe = self.probe.as_mut().unwrap();
-        probe.extra = None; // Close the old candidate BEFORE opening the next.
         for device in probe.devices.by_ref() {
             let Ok(id) = devices::identity(&device, None) else {
                 continue;
@@ -192,9 +197,12 @@ impl Capture {
                 sender.clone(),
                 self.overflow.clone(),
                 id.clone(),
+                Source::Candidate,
             ) {
                 Ok(stream) => {
                     probe.tried.push(id);
+                    // Only retire the current candidate after its replacement
+                    // has opened successfully. Reuse the bounded PCM storage.
                     probe.samples.clear();
                     probe.extra = Some(stream);
                     return;
@@ -203,7 +211,7 @@ impl Capture {
             }
         }
         self.exhausted = true;
-        eprintln!("No working microphone candidate yet; retaining the primary input.");
+        eprintln!("No further microphone candidate opened; retaining the current inputs.");
     }
     pub fn input(
         &mut self,
@@ -311,10 +319,8 @@ impl Capture {
                 );
             }
             if input.signal == Signal::Dead {
-                let id = &self.probe.as_ref().unwrap().extra.as_ref().unwrap().id;
-                if !memory.dead.contains(id) {
-                    memory.dead.push(id.clone());
-                }
+                // Candidate silence can be DSP warm-up, so never cache it as
+                // dead. If no replacement opens, keep buffering this stream.
                 self.next(config, sender);
             }
             Delivery::Ignore
@@ -323,6 +329,8 @@ impl Capture {
     pub fn finish(&mut self, samples: &mut Vec<i16>) {
         if self.choice.chosen.is_none() {
             if let Some(probe) = &mut self.probe {
+                // Exhausting the device list leaves the last candidate and
+                // its buffer intact, including frames received after grace.
                 if super::probe::prefer_candidate(samples, &probe.samples) {
                     std::mem::swap(samples, &mut probe.samples);
                 }
@@ -359,11 +367,16 @@ fn open(
     sender: SyncSender<Event>,
     overflow: Arc<AtomicBool>,
     id: String,
+    source: Source,
 ) -> Result<Stream> {
     let default = device.default_input_config()?;
     let preferred = super::prefer_native(device, &default);
     let token = TOKEN.fetch_add(1, Ordering::Relaxed);
-    let mode = Arc::new(AtomicU8::new(0));
+    let mode = Arc::new(AtomicU8::new(if source == Source::Candidate {
+        CANDIDATE
+    } else {
+        0
+    }));
     let build = |supported: cpal::SupportedStreamConfig| -> Result<cpal::Stream> {
         let format = supported.sample_format();
         let stream_config: cpal::StreamConfig = supported.into();
@@ -424,7 +437,7 @@ mod tests {
         SyncSender<Event>,
     ) {
         let primary = Arc::new(AtomicU8::new(0));
-        let extra = Arc::new(AtomicU8::new(0));
+        let extra = Arc::new(AtomicU8::new(CANDIDATE));
         let stream = |token, mode: Arc<AtomicU8>| Stream {
             _stream: NativeStream::Synthetic,
             mode,
@@ -517,7 +530,7 @@ mod tests {
         assert!(memory.dead.is_empty() && memory.default.is_none());
     }
     #[test]
-    fn all_dead_exhausts_candidates_but_keeps_primary_and_finishes_with_more_energy() {
+    fn last_silent_candidate_stays_open_buffers_and_is_not_remembered_dead() {
         let (mut capture, primary, extra, mut memory, sender) = setup();
         let config = Config::default();
         let dead = Input {
@@ -526,13 +539,125 @@ mod tests {
             signal: Signal::Dead,
             epoch: 0,
         };
-        capture.input(&dead, &config, sender, &mut memory, true);
+        capture.input(&dead, &config, sender.clone(), &mut memory, true);
         assert!(capture.exhausted);
-        assert_eq!(extra.load(Ordering::Relaxed), RETIRED);
+        assert_eq!(extra.load(Ordering::Relaxed), CANDIDATE);
         assert_eq!(primary.load(Ordering::Relaxed), 0);
+        assert_eq!(memory.dead, ["1"]);
+        capture.input(&dead, &config, sender, &mut memory, true);
         let mut samples = vec![0; FRAME];
         capture.finish(&mut samples);
-        assert_eq!(samples, [2; FRAME]);
+        assert_eq!(samples, [2; FRAME * 2]);
+        assert_eq!(extra.load(Ordering::Relaxed), CANDIDATE);
+        drop(capture);
+        assert_eq!(extra.load(Ordering::Relaxed), RETIRED);
+        assert_eq!(primary.load(Ordering::Relaxed), RETIRED);
+    }
+    #[test]
+    fn candidate_with_1100_ms_dsp_warmup_wins_and_keeps_its_silent_prefix() {
+        use std::time::{Duration, Instant};
+
+        let (mut capture, primary, extra, mut memory, sender) = setup();
+        let config = Config::default();
+        let first_callback = Instant::now();
+        let mut health = super::super::probe::Health::new();
+        health.callback(first_callback);
+        let dead = Input {
+            frame: [1; FRAME],
+            token: 1,
+            signal: Signal::Dead,
+            epoch: 0,
+        };
+        assert!(matches!(
+            capture.input(&dead, &config, sender.clone(), &mut memory, true),
+            Delivery::PendingPrimary
+        ));
+        for n in 0..37 {
+            let frame = [0; FRAME];
+            let signal = health.frame(
+                &frame,
+                first_callback + Duration::from_millis(n * 30),
+                Source::Candidate,
+            );
+            assert_eq!(signal, Signal::Pending);
+            capture.input(
+                &Input {
+                    frame,
+                    token: 2,
+                    signal,
+                    epoch: 0,
+                },
+                &config,
+                sender.clone(),
+                &mut memory,
+                true,
+            );
+            assert!(!capture.exhausted);
+            assert_eq!(extra.load(Ordering::Relaxed), CANDIDATE);
+        }
+        let frame = [50; FRAME];
+        let alive = Input {
+            frame,
+            token: 2,
+            signal: health.frame(
+                &frame,
+                first_callback + Duration::from_millis(1100),
+                Source::Candidate,
+            ),
+            epoch: 0,
+        };
+        let Delivery::Candidate(prefix) =
+            capture.input(&alive, &config, sender.clone(), &mut memory, true)
+        else {
+            panic!("Warmed-up candidate was not chosen");
+        };
+        assert_eq!(prefix, vec![0; FRAME * 37]);
+        assert_eq!(primary.load(Ordering::Relaxed), RETIRED);
+        assert_eq!(extra.load(Ordering::Relaxed), NORMAL);
+        assert_eq!(memory.dead, ["1"]);
+        assert!(matches!(
+            capture.input(&alive, &config, sender, &mut memory, true),
+            Delivery::Primary
+        ));
+    }
+    #[test]
+    fn last_candidate_can_become_alive_after_exhaustion_and_recording_start() {
+        let (mut capture, primary, extra, mut memory, sender) = setup();
+        let config = Config::default();
+        capture.wake = true;
+        capture.input(
+            &Input {
+                frame: [0; FRAME],
+                token: 2,
+                signal: Signal::Dead,
+                epoch: 0,
+            },
+            &config,
+            sender.clone(),
+            &mut memory,
+            false,
+        );
+        assert!(capture.exhausted);
+        capture.prepare_recording(&config, sender.clone());
+        capture.set_wake_delivery(false);
+        assert_eq!(extra.load(Ordering::Relaxed), CANDIDATE);
+        assert!(matches!(
+            capture.input(
+                &Input {
+                    frame: [50; FRAME],
+                    token: 2,
+                    signal: Signal::Alive,
+                    epoch: 0,
+                },
+                &config,
+                sender,
+                &mut memory,
+                true,
+            ),
+            Delivery::Candidate(_)
+        ));
+        assert_eq!(primary.load(Ordering::Relaxed), RETIRED);
+        assert_eq!(extra.load(Ordering::Relaxed), NORMAL);
     }
     #[test]
     fn candidate_buffer_is_bounded_and_default_changes_clear_the_cache() {

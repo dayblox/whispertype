@@ -57,18 +57,24 @@ def publish(files, tag, commit, prerelease=False):
         raise ValueError(f'Stable tag must match Cargo.toml: v{version}')
     notes = f'''Built from `{commit}` after Windows and Linux tests passed.
 
-**Microphone fallback:** inputs delivering digital silence for their first 300 ms
-are probed silently alongside another input. The first live stream wins, including
-a primary microphone that recovers. At most two streams and two bounded recording
-buffers are kept; loopback/monitor sources are excluded. Dead-device memory lasts
-only for the process and resets when the default input changes. No new settings,
-notifications, idle polling or application threads are added.
+**Microphone warm-up fix:** a silent primary still triggers fallback after 300 ms,
+but each candidate now gets two seconds from its first native callback for DSP
+warm-up. A replacement must open successfully before the old candidate closes;
+if none opens, the last candidate keeps buffering until capture ends. The first
+live stream wins with its buffered prefix, including a recovered primary. If no
+stream wins, finish uses the higher-energy retained buffer. Silent candidates
+are never remembered as dead; only dead primary identities are cached in memory.
 
-Synthetic fallback/recovery tests and native Windows microphone checks pass.
-Native Linux device fallback and hardware mute/disconnection combinations still
-need testing on the destination machine. The measured Windows working-set cost
-(36–52 KiB during capture, 44 KiB afterward) was accepted for this release;
-see `benchmarks/windows-microphone-fallback.md` for conditions and limits.
+The fix is generic, with no device-specific rules, new settings, notifications,
+idle polling or application threads. Two bounded PCM buffers remain; opening a
+replacement briefly overlaps three streams. Loopback/monitor sources are excluded.
+The dead-primary cache resets when the default input changes.
+
+The 1.1-second silent-candidate regression, 60 Windows functional tests, release
+allocation checks and the native Windows microphone smoke test pass. Windows
+resource profiles and their limits are recorded in `benchmarks/windows-mic-warmup.md`.
+The reported Intel DSP hardware and native Linux device fallback still need
+testing on the destination machine; the delayed-signal case is covered synthetically.
 
 | Platform | Installer | Standalone / portable |
 | --- | --- | --- |

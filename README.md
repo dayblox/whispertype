@@ -174,16 +174,21 @@ prompt = ""                      # short vocabulary/context hints
 ```
 
 Microphone capture starts with the configured name match, or the system default
-input when `microphone` is omitted. If every frame during the first 300 ms stays
-at or below 2 on the 16-bit PCM scale, Whispertype silently tries other inputs
-in enumeration order, excluding loopback/monitor sources. It keeps the primary
-open and at most one candidate open; the first stream with a frame above 2 wins.
-Both recording buffers are bounded by `max_seconds`. If you finish before a
-stream wins, the buffer with more energy is used; entirely silent recordings
-are discarded as before.
+input when `microphone` is omitted. If every primary frame during the first
+300 ms stays at or below 2 on the 16-bit PCM scale, Whispertype silently tries
+other inputs in enumeration order, excluding loopback/monitor sources. Each
+candidate gets two seconds from its first native callback to allow DSP warm-up.
+The primary stays open; the first stream with a frame above 2 wins, keeping
+its buffered prefix. A replacement candidate must open before the previous
+one closes, briefly overlapping during that handoff. If no replacement opens,
+the last candidate stays open and buffering until capture ends. Both recording
+buffers are bounded by `max_seconds`. If you finish before a stream wins, the
+buffer with more energy is used; entirely silent recordings are discarded as
+before.
 
-A dead input is remembered only in memory. The next capture probes alongside
-it immediately, and a recovered primary can win again. Changing the system
+A dead primary is remembered only in memory; silent candidates are never
+remembered as dead. The next capture probes alongside the primary immediately,
+and a recovered primary can win again. Changing the system
 default input clears that memory when capture next starts. Dead/probing frames
 do not feed wake recognition or silence auto-stop. There are no switch
 notifications, extra settings, idle device polling, or device-change listeners.

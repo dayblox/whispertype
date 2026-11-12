@@ -298,7 +298,12 @@ where
             };
             converter.process(data, |frame| {
                 if let Some(now) = now {
-                    let signal = health.frame(&frame, now);
+                    let source = if state & capture::CANDIDATE != 0 {
+                        probe::Source::Candidate
+                    } else {
+                        probe::Source::Primary
+                    };
+                    let signal = health.frame(&frame, now, source);
                     if sender
                         .try_send(Event::Input(Input {
                             frame,
