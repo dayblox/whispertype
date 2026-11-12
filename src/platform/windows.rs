@@ -22,6 +22,8 @@ use windows_sys::Win32::{
     System::{LibraryLoader::GetModuleHandleW, Registry::*},
     UI::{Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
 };
+pub mod http;
+pub mod sha256;
 mod tray_menu;
 mod ui;
 mod upgrade;

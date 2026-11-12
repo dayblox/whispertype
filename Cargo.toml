@@ -1,6 +1,6 @@
 [package]
 name = "whispertype"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 license = "MIT"
 description = "Quiet, native voice typing with Groq Whisper for Windows and Linux"
@@ -20,9 +20,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 semver = "1"
 toml = "0.8"
-ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
 async-io = "2"
 ksni = { version = "0.3.3", default-features = false, features = ["async-io"] }
 libc = "0.2"
@@ -31,9 +31,7 @@ wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 xkbcommon = "0.8"
 
 [target.'cfg(windows)'.dependencies]
-# Reuse the TLS stack's crypto implementation for streamed update verification.
-ring = { version = "0.17", default-features = false }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Controls", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_Security", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_Storage_Xps", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinHttp", "Win32_Security_Cryptography", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Controls", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_Security", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_Storage_Xps", "Win32_Storage_FileSystem"] }
 
 [profile.release]
 opt-level = "s"

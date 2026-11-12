@@ -83,6 +83,8 @@ struct Recording {
     silence: usize,
     voiced: bool,
     wake: bool,
+    #[cfg(windows)]
+    worker: Option<crate::groq::Worker>,
 }
 struct Job {
     child: Child,
@@ -381,6 +383,12 @@ impl Engine {
             silence: 0,
             voiced: false,
             wake,
+            #[cfg(windows)]
+            worker: if self.profiling {
+                None
+            } else {
+                crate::groq::Worker::start().ok()
+            },
         });
         self.refresh();
         Ok(())
@@ -402,14 +410,27 @@ impl Engine {
         let Some(range) = audio::speech_range(&recording.samples, self.config.speech_rms) else {
             return self.resume();
         };
-        let Recording { samples, .. } = recording;
-        let mut child = platform::spawn_hidden(
-            Command::new(std::env::current_exe()?)
-                .arg("_worker")
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::inherit()),
-        )?;
+        let Recording {
+            samples,
+            #[cfg(windows)]
+            worker,
+            ..
+        } = recording;
+        #[cfg(windows)]
+        let warmed = worker.map(crate::groq::Worker::take);
+        #[cfg(not(windows))]
+        let warmed = None;
+        let mut child = if let Some(child) = warmed {
+            child
+        } else {
+            platform::spawn_hidden(
+                Command::new(std::env::current_exe()?)
+                    .arg("_worker")
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::inherit()),
+            )?
+        };
         let mut input = child.stdin.take().context("Missing worker input")?;
         let output = child.stdout.take().context("Missing worker output")?;
         self.generation += 1;

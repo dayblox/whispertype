@@ -1,0 +1,246 @@
+{
+  "methodology": "Paired, app-only HTTP helper profiles. Invalid key; synthetic silence only.\n\nRuns real Schannel/ureq HTTPS requests, so latency is not a controlled proxy\nbenchmark. Never reads the user's key/profile, changes the proxy, or transcribes\nreal audio. Uses poison environment proxies to check Windows ignores them.\n",
+  "trials": 3,
+  "summary": {
+    "before": {
+      "cold_upload": {
+        "elapsed_seconds": 0.05795479999960662,
+        "cpu_seconds": 0.015625,
+        "cpu_cycles": 65399040,
+        "peak_working_set_bytes": 11776000,
+        "peak_private_bytes": 1773568
+      },
+      "release_check": {
+        "elapsed_seconds": 0.08229399999981979,
+        "cpu_seconds": 0.03125,
+        "cpu_cycles": 62611920,
+        "peak_working_set_bytes": 11808768,
+        "peak_private_bytes": 1851392
+      }
+    },
+    "after": {
+      "cold_upload": {
+        "elapsed_seconds": 0.0736575000000812,
+        "cpu_seconds": 0.015625,
+        "cpu_cycles": 113357160,
+        "peak_working_set_bytes": 15159296,
+        "peak_private_bytes": 2846720
+      },
+      "recording_warm": {
+        "elapsed_seconds": 1.0064698999995016,
+        "cpu_seconds": 0.015625,
+        "cpu_cycles": 111645000,
+        "peak_working_set_bytes": 15110144,
+        "peak_private_bytes": 2842624
+      },
+      "release_check": {
+        "elapsed_seconds": 0.09985520000009274,
+        "cpu_seconds": 0.03125,
+        "cpu_cycles": 114801480,
+        "peak_working_set_bytes": 15171584,
+        "peak_private_bytes": 2928640
+      }
+    }
+  },
+  "samples": [
+    {
+      "trial": 1,
+      "label": "before",
+      "state": "cold_upload",
+      "elapsed_seconds": 0.06807440000011411,
+      "cpu_seconds": 0.03125,
+      "cpu_cycles": 65399040,
+      "peak_working_set_bytes": 11776000,
+      "peak_private_bytes": 1769472,
+      "reply_error": "Groq rejected the API key or model permission. Check your Groq account."
+    },
+    {
+      "trial": 1,
+      "label": "before",
+      "state": "release_check",
+      "elapsed_seconds": 0.26101870000002236,
+      "cpu_seconds": 0.03125,
+      "cpu_cycles": 61589160,
+      "peak_working_set_bytes": 11812864,
+      "peak_private_bytes": 1855488,
+      "reply_error": ""
+    },
+    {
+      "trial": 1,
+      "label": "after",
+      "state": "cold_upload",
+      "elapsed_seconds": 0.0758786999995209,
+      "cpu_seconds": 0.015625,
+      "cpu_cycles": 113302440,
+      "peak_working_set_bytes": 15126528,
+      "peak_private_bytes": 2838528,
+      "reply_error": "Groq rejected the API key or model permission. Check your Groq account."
+    },
+    {
+      "trial": 1,
+      "label": "after",
+      "state": "recording_warm",
+      "elapsed_seconds": 1.0084943000001658,
+      "cpu_seconds": 0.015625,
+      "cpu_cycles": 111645000,
+      "peak_working_set_bytes": 15142912,
+      "peak_private_bytes": 2850816,
+      "reply_error": "Missing worker WAV header: failed to fill whole buffer",
+      "warm_snapshot": {
+        "cpu_seconds": 0.015625,
+        "cpu_cycles": 98231760,
+        "private_bytes": 2850816,
+        "working_set_bytes": 14127104,
+        "peak_working_set_bytes": 14127104,
+        "handles": 308
+      }
+    },
+    {
+      "trial": 1,
+      "label": "after",
+      "state": "release_check",
+      "elapsed_seconds": 0.09985520000009274,
+      "cpu_seconds": 0.015625,
+      "cpu_cycles": 114708600,
+      "peak_working_set_bytes": 15085568,
+      "peak_private_bytes": 2830336,
+      "reply_error": ""
+    },
+    {
+      "trial": 2,
+      "label": "before",
+      "state": "cold_upload",
+      "elapsed_seconds": 0.05017440000028728,
+      "cpu_seconds": 0.015625,
+      "cpu_cycles": 65119320,
+      "peak_working_set_bytes": 11776000,
+      "peak_private_bytes": 1773568,
+      "reply_error": "Groq rejected the API key or model permission. Check your Groq account."
+    },
+    {
+      "trial": 2,
+      "label": "before",
+      "state": "release_check",
+      "elapsed_seconds": 0.08164699999997538,
+      "cpu_seconds": 0.0,
+      "cpu_cycles": 62611920,
+      "peak_working_set_bytes": 11808768,
+      "peak_private_bytes": 1851392,
+      "reply_error": ""
+    },
+    {
+      "trial": 2,
+      "label": "after",
+      "state": "cold_upload",
+      "elapsed_seconds": 0.07325659999969503,
+      "cpu_seconds": 0.046875,
+      "cpu_cycles": 114371640,
+      "peak_working_set_bytes": 15159296,
+      "peak_private_bytes": 2846720,
+      "reply_error": "Groq rejected the API key or model permission. Check your Groq account."
+    },
+    {
+      "trial": 2,
+      "label": "after",
+      "state": "recording_warm",
+      "elapsed_seconds": 1.0064698999995016,
+      "cpu_seconds": 0.015625,
+      "cpu_cycles": 110729880,
+      "peak_working_set_bytes": 15110144,
+      "peak_private_bytes": 2842624,
+      "reply_error": "Missing worker WAV header: failed to fill whole buffer",
+      "warm_snapshot": {
+        "cpu_seconds": 0.015625,
+        "cpu_cycles": 97707240,
+        "private_bytes": 2842624,
+        "working_set_bytes": 14123008,
+        "peak_working_set_bytes": 14123008,
+        "handles": 304
+      }
+    },
+    {
+      "trial": 2,
+      "label": "after",
+      "state": "release_check",
+      "elapsed_seconds": 0.09646439999960421,
+      "cpu_seconds": 0.0625,
+      "cpu_cycles": 114801480,
+      "peak_working_set_bytes": 15171584,
+      "peak_private_bytes": 2928640,
+      "reply_error": ""
+    },
+    {
+      "trial": 3,
+      "label": "before",
+      "state": "cold_upload",
+      "elapsed_seconds": 0.05795479999960662,
+      "cpu_seconds": 0.0,
+      "cpu_cycles": 66331800,
+      "peak_working_set_bytes": 11776000,
+      "peak_private_bytes": 1777664,
+      "reply_error": "Groq rejected the API key or model permission. Check your Groq account."
+    },
+    {
+      "trial": 3,
+      "label": "before",
+      "state": "release_check",
+      "elapsed_seconds": 0.08229399999981979,
+      "cpu_seconds": 0.0625,
+      "cpu_cycles": 62753040,
+      "peak_working_set_bytes": 11788288,
+      "peak_private_bytes": 1839104,
+      "reply_error": ""
+    },
+    {
+      "trial": 3,
+      "label": "after",
+      "state": "cold_upload",
+      "elapsed_seconds": 0.0736575000000812,
+      "cpu_seconds": 0.015625,
+      "cpu_cycles": 113357160,
+      "peak_working_set_bytes": 15220736,
+      "peak_private_bytes": 2936832,
+      "reply_error": "Groq rejected the API key or model permission. Check your Groq account."
+    },
+    {
+      "trial": 3,
+      "label": "after",
+      "state": "recording_warm",
+      "elapsed_seconds": 1.006438000000344,
+      "cpu_seconds": 0.078125,
+      "cpu_cycles": 112398120,
+      "peak_working_set_bytes": 15101952,
+      "peak_private_bytes": 2838528,
+      "reply_error": "Missing worker WAV header: failed to fill whole buffer",
+      "warm_snapshot": {
+        "cpu_seconds": 0.0625,
+        "cpu_cycles": 97924680,
+        "private_bytes": 2838528,
+        "working_set_bytes": 14114816,
+        "peak_working_set_bytes": 14114816,
+        "handles": 304
+      }
+    },
+    {
+      "trial": 3,
+      "label": "after",
+      "state": "release_check",
+      "elapsed_seconds": 0.10889459999998508,
+      "cpu_seconds": 0.03125,
+      "cpu_cycles": 124911360,
+      "peak_working_set_bytes": 15187968,
+      "peak_private_bytes": 2936832,
+      "reply_error": ""
+    }
+  ],
+  "binaries": {
+    "before": {
+      "bytes": 4079616,
+      "sha256": "87c59e0c4c029e4e13dc0dea57547c039313fe7a438607eb9a647a8b560ef964"
+    },
+    "after": {
+      "bytes": 2827776,
+      "sha256": "505334d9cdd4327d1b24a8fb43e714a515d443f22e472255cf747d59f0a023ca"
+    }
+  }
+}

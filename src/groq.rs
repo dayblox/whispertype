@@ -2,7 +2,9 @@ use crate::{
     audio::RATE,
     config::{self, Config, Paths},
 };
-use anyhow::{bail, ensure, Context, Result};
+#[cfg(target_os = "linux")]
+use anyhow::bail;
+use anyhow::{ensure, Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -76,6 +78,10 @@ fn reserve(paths: &Paths, seconds: f64) -> Result<()> {
 
 const ENDPOINT: &str = "https://api.groq.com/openai/v1/audio/transcriptions";
 const MAX_WAV_BYTES: u64 = 20_000_000;
+#[cfg(windows)]
+mod worker;
+#[cfg(windows)]
+pub use worker::Worker;
 
 /// Make short/truncated inputs an I/O error instead of silently declaring a
 /// larger Content-Length than the body we actually transmit.
@@ -101,7 +107,17 @@ impl<R: Read> Read for ExactRead<R> {
     }
 }
 
-pub fn worker(paths: &Paths) -> Result<String> {
+pub fn worker(paths: &Paths, warm: bool) -> Result<String> {
+    #[cfg(windows)]
+    let mut client = crate::platform::http::Client::new();
+    #[cfg(windows)]
+    if warm {
+        if let Ok(client) = &mut client {
+            let _ = warm_connection(client, paths);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = warm;
     let input = std::io::stdin();
     let mut input = input.lock();
     let mut header = [0; 44];
@@ -125,6 +141,8 @@ pub fn worker(paths: &Paths) -> Result<String> {
         bytes + 44,
         bytes as f64 / 2.0 / RATE as f64,
         ENDPOINT,
+        #[cfg(windows)]
+        Some(&mut client),
     )
 }
 
@@ -137,7 +155,16 @@ pub fn transcribe_file(paths: &Paths, config: &Config, path: &std::path::Path) -
     );
     let seconds = wav_duration(&mut file)?;
     file.rewind()?;
-    send_audio(paths, config, file, bytes, seconds, ENDPOINT)
+    send_audio(
+        paths,
+        config,
+        file,
+        bytes,
+        seconds,
+        ENDPOINT,
+        #[cfg(windows)]
+        None,
+    )
 }
 
 fn wav_duration(reader: impl Read + Seek) -> Result<f64> {
@@ -156,7 +183,16 @@ fn wav_duration(reader: impl Read + Seek) -> Result<f64> {
 fn transcribe_at(paths: &Paths, config: &Config, wav: Vec<u8>, endpoint: &str) -> Result<String> {
     let seconds = wav_duration(Cursor::new(&wav))?;
     let bytes = wav.len() as u64;
-    send_audio(paths, config, Cursor::new(wav), bytes, seconds, endpoint)
+    send_audio(
+        paths,
+        config,
+        Cursor::new(wav),
+        bytes,
+        seconds,
+        endpoint,
+        #[cfg(windows)]
+        None,
+    )
 }
 
 fn send_audio(
@@ -166,6 +202,7 @@ fn send_audio(
     bytes: u64,
     seconds: f64,
     endpoint: &str,
+    #[cfg(windows)] client: Option<&mut std::io::Result<crate::platform::http::Client>>,
 ) -> Result<String> {
     ensure!(
         bytes <= MAX_WAV_BYTES,
@@ -209,20 +246,72 @@ fn send_audio(
             remaining: bytes,
         })
         .chain(Cursor::new(footer));
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(10))
-        .timeout(Duration::from_secs(90))
-        .redirects(0)
-        .build();
-    let response = agent
-        .post(endpoint)
-        .set("Authorization", &format!("Bearer {key}"))
-        .set(
-            "Content-Type",
-            &format!("multipart/form-data; boundary={boundary}"),
-        )
-        .set("Content-Length", &length.to_string())
-        .send(body);
+    #[cfg(target_os = "linux")]
+    let response = {
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(10))
+            .timeout(Duration::from_secs(90))
+            .redirects(0)
+            .build();
+        agent
+            .post(endpoint)
+            .set("Authorization", &format!("Bearer {key}"))
+            .set(
+                "Content-Type",
+                &format!("multipart/form-data; boundary={boundary}"),
+            )
+            .set("Content-Length", &length.to_string())
+            .send(body)
+    };
+    #[cfg(windows)]
+    let response = (|| -> Result<_> {
+        let preflight = client.is_none();
+        let mut local;
+        let client = match client {
+            Some(client) => client,
+            None => {
+                local = crate::platform::http::Client::new();
+                &mut local
+            }
+        };
+        let client = client
+            .as_mut()
+            .map_err(|e| std::io::Error::new(e.kind(), e.to_string()))?;
+        // CLI uploads also authenticate a tunnel before consuming a pipe/file.
+        // A failed warm-up never prevents the real request.
+        if preflight && !cfg!(test) {
+            let _ = warm_connection(client, paths);
+        }
+        let mut response = client.request("POST", endpoint,
+            &format!("Authorization: Bearer {key}\r\nContent-Type: multipart/form-data; boundary={boundary}\r\n"),
+            Duration::from_secs(10), Duration::from_secs(90), 0)?;
+        response.send(body, length)?;
+        let status = response.status()?;
+        let retry = response.header("Retry-After");
+        if !(200..300).contains(&status) {
+            return Err(status_error(status, retry.as_deref()));
+        }
+        let mut body = String::new();
+        response.take(128_001).read_to_string(&mut body)?;
+        ensure!(body.len() <= 128_000, "Unexpectedly large Groq response");
+        Ok(body)
+    })();
+    #[cfg(windows)]
+    {
+        let body = response.map_err(|e| {
+            if e.downcast_ref::<std::io::Error>().is_some() {
+                if e.to_string().contains(crate::platform::http::PROXY_REFUSED) { anyhow::anyhow!(crate::platform::http::PROXY_REFUSED) }
+                else { anyhow::anyhow!("Could not reach Groq (network, TLS, or timeout). No automatic retry was made.") }
+            } else { e }
+        })?;
+        let result: serde_json::Value = serde_json::from_str(&body)?;
+        Ok(result["text"]
+            .as_str()
+            .context("Groq response has no text")?
+            .trim()
+            .to_string())
+    }
+    #[cfg(target_os = "linux")]
     match response {
         Ok(response) => {
             let mut body = String::new(); response.into_reader().take(128_001).read_to_string(&mut body)?;
@@ -235,6 +324,43 @@ fn send_audio(
         Err(ureq::Error::Status(status,_)) => bail!("Groq returned HTTP {status}. No automatic retry was made."),
         Err(ureq::Error::Transport(_)) => bail!("Could not reach Groq (network, TLS, or timeout). No automatic retry was made."),
     }
+}
+
+#[cfg(windows)]
+fn status_error(status: u32, retry: Option<&str>) -> anyhow::Error {
+    match status {
+        401 | 403 => anyhow::anyhow!("Groq rejected the API key or model permission. Check your Groq account."),
+        407 => anyhow::anyhow!(crate::platform::http::PROXY_REFUSED),
+        429 => anyhow::anyhow!("Groq rate limit reached. Retry after {} seconds. Limits are shared across your organization.", retry.unwrap_or("a few")),
+        _ => anyhow::anyhow!("Groq returned HTTP {status}. No automatic retry was made."),
+    }
+}
+
+#[cfg(windows)]
+fn warm_connection(client: &mut crate::platform::http::Client, paths: &Paths) -> Result<()> {
+    let key = std::env::var("GROQ_API_KEY").or_else(|_| std::fs::read_to_string(&paths.key))?;
+    config::validate_key(key.trim())?;
+    let mut request = client.request(
+        "GET",
+        "https://api.groq.com/openai/v1/models",
+        &format!("Authorization: Bearer {}\r\n", key.trim()),
+        Duration::from_secs(10),
+        Duration::from_secs(10),
+        0,
+    )?;
+    request.send(std::io::empty(), 0)?;
+    // Drain through a bounded buffer so WinHTTP can reuse this exact tunnel.
+    let mut buffer = [0; 8192];
+    let mut bytes = 0;
+    loop {
+        let n = request.read(&mut buffer)?;
+        if n == 0 {
+            break;
+        }
+        bytes += n;
+        ensure!(bytes <= 128_000, "Unexpectedly large Groq response");
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -266,13 +392,20 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let paths = Paths::at(temp.path().to_path_buf()).unwrap();
         config::private_write(&paths.key, b"gsk_testkey00000000000000000000000").unwrap();
+        let large = " ".repeat(128_001);
         for (status, response, headers) in [
             (200, r#"{"text":"Hello, world."}"#, ""),
             (429, "{}", "Retry-After: 17\r\n"),
             (401, "{}", ""),
+            (403, "{}", ""),
+            (407, "{}", ""),
+            (500, "{}", ""),
+            (302, "{}", "Location: http://127.0.0.1:1/never\r\n"),
+            (200, large.as_str(), ""),
         ] {
             let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let address = server.local_addr().unwrap();
+            let wire_response = response.to_owned();
             let handle = std::thread::spawn(move || {
                 let (mut client, _) = server.accept().unwrap();
                 client
@@ -308,7 +441,7 @@ mod tests {
                 assert!(data.contains("RIFF"));
                 assert!(data.contains("name=\"prompt\""));
                 assert!(data.contains("Whispertype, Groq, Dayblox"));
-                write!(client,"HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{headers}Connection: close\r\n\r\n{response}",response.len()).unwrap();
+                write!(client,"HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{headers}Connection: close\r\n\r\n{wire_response}",wire_response.len()).unwrap();
             });
             let result = transcribe_at(
                 &paths,
@@ -320,15 +453,32 @@ mod tests {
                 &format!("http://{address}/audio/transcriptions"),
             );
             match status {
+                200 if response.len() > 128_000 => assert!(result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Unexpectedly large")),
                 200 => assert_eq!(result.unwrap(), "Hello, world."),
                 429 => assert!(result.unwrap_err().to_string().contains("17 seconds")),
-                _ => assert!(result.unwrap_err().to_string().contains("API key")),
+                401 | 403 => assert!(result.unwrap_err().to_string().contains("API key")),
+                407 => {
+                    #[cfg(windows)]
+                    assert!(result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("Proxy login refused"));
+                    #[cfg(not(windows))]
+                    assert!(result.unwrap_err().to_string().contains("HTTP 407"));
+                }
+                _ => assert!(result
+                    .unwrap_err()
+                    .to_string()
+                    .contains(&format!("HTTP {status}"))),
             };
             handle.join().unwrap();
         }
         let entries: Vec<Usage> =
             serde_json::from_slice(&std::fs::read(&paths.state).unwrap()).unwrap();
-        assert_eq!(entries.len(), 3);
+        assert_eq!(entries.len(), 8);
         assert!(entries.iter().all(|u| u.seconds == 10.0));
     }
     #[test]

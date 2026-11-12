@@ -7,6 +7,19 @@ not supplied during development.
 
 ## Completed checks
 
+- November 12 WinHTTP/installer changes: **47 functional tests**, formatting,
+  Clippy, release/system-DLL checks, package/release tests, update integration,
+  streaming allocation checks and Inno Setup compilation pass through
+  `scripts/build-windows.ps1 -Installer -Benchmark`. Windows dependencies omit
+  ureq/rustls/ring/bundled roots; system WinHTTP and CNG supply networking and
+  crypto. Native proxy refusal, auth preference, connection reuse, redirects,
+  multipart bounds and absolute timeout regressions pass. Live Groq/GitHub
+  HTTPS GET smoke tests pass without a real key. Corporate login, real-key
+  transcription and Linux execution remain unverified here. The release EXE
+  shrinks from 4,079,616 to 2,827,776 bytes. Measured transient resource cost
+  was explicitly accepted by the user on November 12, 2026; evidence is in
+  `benchmarks/windows-winhttp-efficiency.md`.
+
 - v0.1.8 Windows interaction changes: **40 functional tests pass**, plus the
   opt-in desktop smoke test. Escape hook tests cover idle pass-through, active
   cancellation, held-key repeat/release after cancellation, and injected-key

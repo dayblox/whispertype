@@ -2348,7 +2348,7 @@ dependencies = [
 
 [[package]]
 name = "whispertype"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "async-io",
@@ -2361,7 +2361,6 @@ dependencies = [
  "hound",
  "ksni",
  "libc",
- "ring",
  "rubato 0.16.2",
  "rustpotter",
  "semver",

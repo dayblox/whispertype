@@ -19,7 +19,7 @@ Dictation is uploaded after you stop; this is not streaming transcription. Compl
 
 Download from [GitHub Releases](https://github.com/dayblox/whisper/releases/latest):
 
-- **Installer:** `whispertype-windows-x64-setup.exe`. Installs for the current user, offers optional sign-in startup and hidden Groq key entry, and includes an uninstaller. No administrator rights required.
+- **Installer:** `whispertype-windows-x64-setup.exe`. Choose the installation folder (defaults to `%LOCALAPPDATA%\Whispertype`). Installs for the current user, offers optional sign-in startup and hidden Groq key entry, and includes an uninstaller. No administrator rights required; choose a folder your account can write to so automatic updates can replace the EXE.
 - **Standalone:** `whispertype-windows-x64.exe`, or `whispertype-windows-x64.zip` for the binary with documentation and install/uninstall scripts.
 
 For the ZIP, extract it and run `install-windows.ps1` in PowerShell:
@@ -29,6 +29,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install-windows.ps1
 ```
 
 The script installs under `%LOCALAPPDATA%\Whispertype`, asks for a [Groq API key](https://console.groq.com/keys) without displaying it, and starts the app at sign-in. No administrator rights or additional runtime are needed. Allow microphone access for desktop apps in Windows Privacy settings. Windows may warn about the unsigned executable.
+
+For a different folder, pass `-Destination "D:\Apps\Whispertype"` to the ZIP installation script, and the same argument to its uninstall script when removing it.
+
+Corporate proxies are supported through the system/WinHTTP proxy settings (including machine-wide `netsh winhttp set proxy` configuration). Windows uses WinHTTP and Schannel for all HTTPS calls, with the signed-in Windows account for Negotiate/NTLM proxy login; no proxy password is saved and Basic authentication is never used. `HTTP_PROXY`/`HTTPS_PROXY` environment variables are ignored on Windows. Recording starts a short-lived helper to warm the Groq connection; cancellation, discarded audio, and completed transcription release it. Linux continues to use ureq.
 
 For portable use, run `whispertype.exe` after saving your key as `%APPDATA%\whispertype\groq.key`. The tray icon may initially be in the taskbar overflow. Do not run as administrator: input into elevated applications or secure desktops is blocked by Windows. Some games and custom text controls do not accept Unicode `SendInput`.
 

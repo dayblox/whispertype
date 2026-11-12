@@ -1,6 +1,7 @@
 # Run from the extracted Windows release. No administrator rights required.
+param([string]$Destination = (Join-Path $env:LOCALAPPDATA 'Whispertype'))
 $ErrorActionPreference = 'Stop'
-$destination = Join-Path $env:LOCALAPPDATA 'Whispertype'
+$destination = [IO.Path]::GetFullPath($Destination)
 $config = Join-Path $env:APPDATA 'whispertype'
 $source = Join-Path $PSScriptRoot 'whispertype.exe'
 if (!(Test-Path $source)) { $source = Join-Path $PSScriptRoot '..\target\release\whispertype.exe' }

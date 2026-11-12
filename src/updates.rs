@@ -43,32 +43,62 @@ struct Asset {
     digest: Option<String>,
 }
 
-fn fetch(endpoint: &str, current: &str) -> Result<Option<Release>> {
-    let response = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout(Duration::from_secs(10))
-        .redirects(0)
-        .build()
-        .get(endpoint)
-        .set("Accept", "application/vnd.github+json")
-        .set(
-            "User-Agent",
-            concat!("Whispertype/", env!("CARGO_PKG_VERSION")),
-        )
-        .call();
-    let response = match response {
-        Ok(response) => response,
-        Err(ureq::Error::Status(403 | 429, _)) => {
-            bail!("GitHub rate limit reached. Try again later.")
+fn fetch(
+    endpoint: &str,
+    current: &str,
+    #[cfg(windows)] client: &mut crate::platform::http::Client,
+) -> Result<Option<Release>> {
+    #[cfg(target_os = "linux")]
+    let response = {
+        let response = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
+            .redirects(0)
+            .build()
+            .get(endpoint)
+            .set("Accept", "application/vnd.github+json")
+            .set(
+                "User-Agent",
+                concat!("Whispertype/", env!("CARGO_PKG_VERSION")),
+            )
+            .call();
+        match response {
+            Ok(response) => response,
+            Err(ureq::Error::Status(403 | 429, _)) => {
+                bail!("GitHub rate limit reached. Try again later.")
+            }
+            Err(ureq::Error::Status(404, _)) => bail!("No stable release is available yet."),
+            Err(error) => return Err(error).context("Could not check GitHub for updates"),
         }
-        Err(ureq::Error::Status(404, _)) => bail!("No stable release is available yet."),
-        Err(error) => return Err(error).context("Could not check GitHub for updates"),
+    };
+    #[cfg(windows)]
+    let response = {
+        let mut response = client
+            .request(
+                "GET",
+                endpoint,
+                "Accept: application/vnd.github+json\r\n",
+                Duration::from_secs(5),
+                Duration::from_secs(10),
+                0,
+            )
+            .context("Could not check GitHub for updates")?;
+        response
+            .send(std::io::empty(), 0)
+            .context("Could not check GitHub for updates")?;
+        match response.status()? {
+            200..300 => {}
+            403 | 429 => bail!("GitHub rate limit reached. Try again later."),
+            404 => bail!("No stable release is available yet."),
+            407 => bail!(crate::platform::http::PROXY_REFUSED),
+            status => bail!("Could not check GitHub for updates: HTTP {status}"),
+        }
+        response
     };
     let mut body = Vec::new();
-    response
-        .into_reader()
-        .take(LIMIT + 1)
-        .read_to_end(&mut body)?;
+    #[cfg(target_os = "linux")]
+    let response = response.into_reader();
+    response.take(LIMIT + 1).read_to_end(&mut body)?;
     ensure!(body.len() as u64 <= LIMIT, "Update response is too large");
     let release: Release = serde_json::from_slice(&body).context("Invalid update response")?;
     ensure!(
@@ -88,8 +118,24 @@ fn fetch(endpoint: &str, current: &str) -> Result<Option<Release>> {
 
 // TLS and HTTP allocations live in this short-lived worker, not the idle tray.
 pub fn check() -> Reply {
-    match fetch(ENDPOINT, env!("CARGO_PKG_VERSION")) {
-        Ok(release) => {
+    let result = (|| -> Result<_> {
+        #[cfg(windows)]
+        let mut client =
+            crate::platform::http::Client::new().context("Could not check GitHub for updates")?;
+        let release = fetch(
+            ENDPOINT,
+            env!("CARGO_PKG_VERSION"),
+            #[cfg(windows)]
+            &mut client,
+        )?;
+        #[cfg(not(windows))]
+        let client = ();
+        Ok((release, client))
+    })();
+    match result {
+        Ok((release, _client)) => {
+            #[cfg(windows)]
+            let mut client = _client;
             let reply = Reply {
                 newer_version: release
                     .as_ref()
@@ -102,7 +148,7 @@ pub fn check() -> Reply {
             let reply = {
                 let mut reply = reply;
                 if let Some(release) = release {
-                    match windows::prepare(&release) {
+                    match windows::prepare(&release, &mut client) {
                         Ok(staged) => reply.staged = Some(staged),
                         Err(error) => reply.error = Some(format!("{error:#}")),
                     }
@@ -198,6 +244,14 @@ pub fn start(sender: SyncSender<crate::engine::Event>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn fetch(endpoint: &str, current: &str) -> Result<Option<Release>> {
+        super::fetch(
+            endpoint,
+            current,
+            #[cfg(windows)]
+            &mut crate::platform::http::Client::new()?,
+        )
+    }
     use std::{io::Write, net::TcpListener};
 
     fn mock(body: &str, status: &str) -> String {

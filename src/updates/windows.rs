@@ -1,5 +1,8 @@
 use super::*;
-use ring::digest;
+use crate::platform::{
+    http,
+    sha256::{self, Sha256},
+};
 use std::{fs::File, io::Write, path::Path, path::PathBuf};
 use windows_sys::Win32::{Foundation::*, System::Threading::*};
 
@@ -93,7 +96,7 @@ fn expected_digest(digest: Option<&str>) -> Result<[u8; 32]> {
 
 fn download(mut reader: impl Read, asset: &Asset, destination: &Path) -> Result<()> {
     let mut file = File::create(destination)?;
-    let mut hash = digest::Context::new(&digest::SHA256);
+    let mut hash = Sha256::new()?;
     let mut count = 0u64;
     let mut buffer = [0u8; 64 * 1024];
     loop {
@@ -106,54 +109,54 @@ fn download(mut reader: impl Read, asset: &Asset, destination: &Path) -> Result<
             count <= asset.size && count <= BINARY_LIMIT,
             "Update download is too large"
         );
-        hash.update(&buffer[..n]);
+        hash.update(&buffer[..n])?;
         file.write_all(&buffer[..n])?;
     }
     ensure!(count == asset.size, "Update download is incomplete");
     ensure!(
-        hash.finish().as_ref() == expected_digest(asset.digest.as_deref())?,
+        hash.finish()? == expected_digest(asset.digest.as_deref())?,
         "Update checksum does not match; no files were replaced"
     );
     file.sync_all()?;
     Ok(())
 }
 
-pub(super) fn prepare(release: &Release) -> Result<PathBuf> {
+pub(super) fn prepare(release: &Release, client: &mut http::Client) -> Result<PathBuf> {
     let asset = asset(release)?;
     let target = std::env::current_exe()?;
     // Staging beside the EXE checks write access before downloading and keeps
     // replacement/rollback renames on the same filesystem for portable copies.
     let stage = staging(target.parent().context("Missing application directory")?)?;
-    let response = ureq::AgentBuilder::new()
-        .https_only(true)
-        .timeout_connect(Duration::from_secs(10))
-        .timeout(Duration::from_secs(180))
-        .redirects(5)
-        .build()
-        .get(&asset.browser_download_url)
-        .set(
-            "User-Agent",
-            concat!("Whispertype/", env!("CARGO_PKG_VERSION")),
-        )
-        .call()
+    let mut response = client.request(
+        "GET",
+        &asset.browser_download_url,
+        "",
+        Duration::from_secs(10),
+        Duration::from_secs(180),
+        5,
+    )?;
+    response
+        .send(std::io::empty(), 0)
         .context("Could not download the update")?;
-    download(response.into_reader(), asset, &stage.path.join("new.exe"))?;
+    let status = response.status()?;
+    ensure!(status != 407, http::PROXY_REFUSED);
+    ensure!(
+        (200..300).contains(&status),
+        "Could not download the update: HTTP {status}"
+    );
+    download(response, asset, &stage.path.join("new.exe"))?;
     std::fs::copy(target, stage.path.join("updater.exe"))?;
     Ok(stage.keep())
 }
 
 fn staging(parent: &Path) -> Result<Prepared> {
-    use ring::rand::{SecureRandom, SystemRandom};
     let mut random = [0u8; 16];
-    SystemRandom::new()
-        .fill(&mut random)
-        .map_err(|_| anyhow::anyhow!("Could not create a random update directory name"))?;
+    sha256::random(&mut random).context("Could not create a random update directory name")?;
     let path = parent.join(format!(
         ".whispertype-update-{:032x}",
         u128::from_le_bytes(random)
     ));
-    // Atomic creation refuses existing directories/symlinks. Reuse the crypto
-    // stack's RNG instead of adding another runtime dependency for temp paths.
+    // Atomic creation refuses existing directories/symlinks. Use the OS RNG.
     std::fs::create_dir(&path).context(
         "Could not create update staging; the application directory may not be writable",
     )?;
@@ -265,7 +268,7 @@ fn remove_stage(stage: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn hex(hash: digest::Digest) -> String {
+    fn hex(hash: [u8; 32]) -> String {
         use std::fmt::Write;
         let mut text = String::with_capacity(64);
         for byte in hash.as_ref() {
@@ -281,10 +284,11 @@ mod tests {
                 "https://github.com/dayblox/whisper/releases/download/v0.2.0/{BINARY}"
             ),
             size: bytes.len() as u64,
-            digest: Some(format!(
-                "sha256:{}",
-                hex(digest::digest(&digest::SHA256, bytes))
-            )),
+            digest: Some(format!("sha256:{}", {
+                let mut hash = Sha256::new().unwrap();
+                hash.update(bytes).unwrap();
+                hex(hash.finish().unwrap())
+            })),
         }
     }
 
@@ -363,13 +367,13 @@ mod tests {
         let target = dir.path().join("new.exe");
         for size in [64 * 1024u64, 8 * 1024 * 1024] {
             let block = [42u8; 8192];
-            let mut hash = digest::Context::new(&digest::SHA256);
+            let mut hash = Sha256::new().unwrap();
             for _ in 0..size / block.len() as u64 {
-                hash.update(&block);
+                hash.update(&block).unwrap();
             }
             let mut asset = fixture(b"");
             asset.size = size;
-            asset.digest = Some(format!("sha256:{}", hex(hash.finish())));
+            asset.digest = Some(format!("sha256:{}", hex(hash.finish().unwrap())));
             let (allocations, peak) = crate::audio::test_allocations(|| {
                 download(std::io::repeat(42).take(size), &asset, &target).unwrap();
             });

@@ -6,6 +6,11 @@ Whispertype third-party notices
 
 This file lists dependencies in the resolved Cargo graph, including build/test and platform-specific crates that may not be linked into a particular release.
 
+Windows networking uses the system WinHTTP/Schannel libraries through windows-sys;
+SHA-256 and secure random bytes use Windows CNG. Windows release builds do not
+link ureq, rustls, ring or bundled root certificates. Their notices below remain
+applicable to the Linux build. No additional crate package was introduced.
+
 
 ========================================================================
 alsa 0.9.1 — Apache-2.0/MIT

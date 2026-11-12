@@ -1,6 +1,13 @@
 # Optimization pass — November 11, 2026
 
 The standing RAM/CPU requirements for future work are in `AGENTS.md`.
+The November 12 Windows WinHTTP change removes bundled TLS/crypto dependencies
+and warms the existing upload helper at recording start. Native completion
+events enforce request deadlines without a watchdog thread or idle polling.
+It reduces EXE size but measurements show additional transient private memory
+and CPU work, and an earlier helper lifetime during recording. The user explicitly
+accepted this measured tradeoff on November 12, 2026; see `benchmarks/windows-winhttp-efficiency.md`
+for conditions, raw profiles, bounded-buffer checks and proxy-test limits.
 Windows Escape cancellation reuses the existing keyboard hook and bounded
 engine queue, with an allocation-free cancellation event. Idle/unmatched keys
 do not lock the snapshot. Persistent tray selections use a thread-local native

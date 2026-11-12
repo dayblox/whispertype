@@ -62,7 +62,9 @@ def publish(files, tag, commit, prerelease=False):
 | Windows 10/11 x64 | `whispertype-windows-x64-setup.exe` (per user, no admin) | `whispertype-windows-x64.exe` or `whispertype-windows-x64.zip` |
 | Linux x64 | `whispertype-linux-x64-install.sh` (self-extracting) | `whispertype-linux-x64` or `whispertype-linux-x64.tar.gz` |
 
-**Windows:** run Setup, optionally enter your Groq key, then use Ctrl+Space. The ZIP also includes PowerShell install/uninstall scripts. Standalone users save the key in `%APPDATA%\\whispertype\\groq.key`.
+**Windows:** run Setup, choose the installation folder, optionally enter your Groq key, then use Ctrl+Space. The ZIP also includes PowerShell install/uninstall scripts with a `-Destination` option. Standalone users save the key in `%APPDATA%\\whispertype\\groq.key`.
+
+Windows HTTPS uses native WinHTTP/Schannel and the system proxy settings, including machine-wide WinHTTP proxy configuration. Proxy login uses the signed-in Windows account through Negotiate/NTLM, never Basic. Recording warms the Groq connection in the short-lived upload helper; uploads and updates stream through bounded buffers. Linux retains ureq. See `benchmarks/windows-winhttp-efficiency.md` in the source for measured resource costs and validation limits. Corporate proxy login and real-key transcription still need testing in your environment.
 
 **Linux:** run `bash whispertype-linux-x64-install.sh`. It installs the prebuilt binary to `~/.local/bin`, configures the user service/Hyprland bindings, and needs no Rust compiler. Then run `~/.local/bin/whispertype set-key`. The tarball includes `install-linux.sh` as well. For the standalone download, first run `chmod +x whispertype-linux-x64`.
 

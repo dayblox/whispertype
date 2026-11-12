@@ -48,6 +48,8 @@ def verify(binary):
         assert system.is_file() or lowered.startswith(('api-ms-win-', 'ext-ms-')), f'Non-system DLL: {name}'
         imports.append(name)
         descriptor += 20
+    # WinHTTP is the Windows system HTTP/TLS implementation, not a bundled DLL.
+    assert 'winhttp.dll' in {name.lower() for name in imports}, 'Missing native WinHTTP transport'
 
     with tempfile.TemporaryDirectory(prefix='whispertype-cli-') as temp:
         env = dict(os.environ, WHISPERTYPE_HOME=temp)

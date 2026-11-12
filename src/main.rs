@@ -73,7 +73,7 @@ fn run() -> Result<()> {
             engine::run(paths)
         }
         "_worker" => {
-            let result = groq::worker(&paths);
+            let result = groq::worker(&paths, args.get(1).is_some_and(|a| a == "--warm"));
             let reply = match result {
                 Ok(text) => engine::Transcript { text, error: None },
                 Err(err) => engine::Transcript {
