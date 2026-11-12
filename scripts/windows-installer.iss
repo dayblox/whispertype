@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.9"
+  #define AppVersion "0.1.10"
 #endif
 
 [Setup]
@@ -7,7 +7,7 @@ AppId={{B2615475-8302-4834-AE3E-092AA419C04C}
 AppName=Whispertype
 AppVersion={#AppVersion}
 AppPublisher=Dayblox
-AppPublisherURL=https://github.com/dayblox/whisper
+AppPublisherURL=https://github.com/dayblox/whispertype
 DefaultDirName={localappdata}\Whispertype
 DisableDirPage=no
 DefaultGroupName=Whispertype

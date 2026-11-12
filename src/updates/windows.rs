@@ -66,7 +66,7 @@ fn asset(release: &Release) -> Result<&Asset> {
     ensure!(
         asset.browser_download_url
             == format!(
-                "https://github.com/dayblox/whisper/releases/download/{}/{BINARY}",
+                "https://github.com/dayblox/whispertype/releases/download/{}/{BINARY}",
                 release.tag_name
             ),
         "Unexpected update download URL"
@@ -281,7 +281,7 @@ mod tests {
         Asset {
             name: BINARY.into(),
             browser_download_url: format!(
-                "https://github.com/dayblox/whisper/releases/download/v0.2.0/{BINARY}"
+                "https://github.com/dayblox/whispertype/releases/download/v0.2.0/{BINARY}"
             ),
             size: bytes.len() as u64,
             digest: Some(format!("sha256:{}", {

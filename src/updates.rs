@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-const ENDPOINT: &str = "https://api.github.com/repos/dayblox/whisper/releases/latest";
+const ENDPOINT: &str = "https://api.github.com/repos/dayblox/whispertype/releases/latest";
 const LIMIT: u64 = 64_000;
 static CHECKING: AtomicBool = AtomicBool::new(false);
 #[cfg(windows)]
@@ -225,7 +225,7 @@ pub fn start(sender: SyncSender<crate::engine::Event>) -> Result<()> {
             Ok(Reply { newer_version: Some(version), .. }) => {
                 match crate::platform::open_releases() {
                     Ok(()) => format!("Whispertype {version} is available. Opening the download page."),
-                    Err(_) => format!("Whispertype {version} is available at github.com/dayblox/whisper/releases/latest"),
+                    Err(_) => format!("Whispertype {version} is available at github.com/dayblox/whispertype/releases/latest"),
                 }
             }
             Ok(_) => format!("Whispertype {} is up to date.", env!("CARGO_PKG_VERSION")),

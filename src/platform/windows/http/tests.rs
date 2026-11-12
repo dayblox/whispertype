@@ -279,7 +279,7 @@ fn winhttp_live_https_smoke() {
     for (url, expected) in [
         ("https://api.groq.com/openai/v1/models", 401),
         (
-            "https://api.github.com/repos/dayblox/whisper/releases/latest",
+            "https://api.github.com/repos/dayblox/whispertype/releases/latest",
             200,
         ),
     ] {

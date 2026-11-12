@@ -17,7 +17,7 @@ Dictation is uploaded after you stop; this is not streaming transcription. Compl
 
 ## Windows
 
-Download from [GitHub Releases](https://github.com/dayblox/whisper/releases/latest):
+Download from [GitHub Releases](https://github.com/dayblox/whispertype/releases/latest):
 
 - **Installer:** `whispertype-windows-x64-setup.exe`. Choose the installation folder (defaults to `%LOCALAPPDATA%\Whispertype`). Installs for the current user, offers optional sign-in startup and hidden Groq key entry, and includes an uninstaller. No administrator rights required; choose a folder your account can write to so automatic updates can replace the EXE.
 - **Standalone:** `whispertype-windows-x64.exe`, or `whispertype-windows-x64.zip` for the binary with documentation and install/uninstall scripts.
@@ -48,7 +48,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 
 The script checks formatting, runs unit tests and Clippy, builds the native release EXE, verifies its GUI subsystem/system-only DLL imports and redirected CLI/worker output, then tests and creates the installable ZIP plus `SHA256SUMS`. Outputs: `target\release\whispertype.exe` and `dist\whispertype-windows-x64.zip`. The MSVC runtime is linked statically; end users need no Python or C++ runtime installation. For just the binary, `cargo build --release --locked` still works. `uninstall-windows.ps1` removes startup registration and the installed binary while retaining settings.
 
-**Automatic releases:** [Build and test](https://github.com/dayblox/whisper/actions/workflows/build.yml) checks both platforms, tests installers, and publishes a [GitHub Release](https://github.com/dayblox/whisper/releases) only after both builds pass. Every `main` push publishes an immutable `main-RUNNUMBER-SHORTSHA` prerelease. Push a `vVERSION` tag matching `Cargo.toml` for a stable release (for example, `v0.1.0`); stable releases appear at the [latest release](https://github.com/dayblox/whisper/releases/latest) link. Pull requests run checks without publishing. Manual dispatch also produces a main prerelease. Each release includes installers, standalone binaries, portable archives, licenses, and a combined `SHA256SUMS`. No API key is needed for CI. Actions artifacts remain available for 30 days; release downloads persist independently.
+**Automatic releases:** [Build and test](https://github.com/dayblox/whispertype/actions/workflows/build.yml) checks both platforms, tests installers, and publishes a [GitHub Release](https://github.com/dayblox/whispertype/releases) only after both builds pass. Every `main` push publishes an immutable `main-RUNNUMBER-SHORTSHA` prerelease. Push a `vVERSION` tag matching `Cargo.toml` for a stable release (for example, `v0.1.0`); stable releases appear at the [latest release](https://github.com/dayblox/whispertype/releases/latest) link. Pull requests run checks without publishing. Manual dispatch also produces a main prerelease. Each release includes installers, standalone binaries, portable archives, licenses, and a combined `SHA256SUMS`. No API key is needed for CI. Actions artifacts remain available for 30 days; release downloads persist independently.
 
 **Validation:** native Windows unit, microphone, and desktop smoke tests now pass. The desktop check types Unicode into its own native edit field, exercises hook transitions and IPC, and checks the indicator does not steal focus. Physical shortcut use, personal wake accuracy, application-specific typing, sign-in startup, and live Groq transcription remain manual checks. See `VALIDATION.md`.
 
@@ -70,7 +70,7 @@ for every Notepad version. Whispertype does not change other apps' settings.
 
 Tested desktop: Omarchy / Hyprland with Lua configuration and PipeWire's ALSA compatibility layer. GNOME, X11, and generic non-Hyprland shortcut setup are not implemented. Release binaries are built on Ubuntu 22.04 (glibc 2.35+) and require ALSA/PipeWire, `libxkbcommon`, `wtype`, a StatusNotifier tray host, a layer-shell compositor and systemd user services. On Arch/Omarchy these runtime components are normally installed.
 
-Download the **self-extracting installer** `whispertype-linux-x64-install.sh` from [Releases](https://github.com/dayblox/whisper/releases/latest):
+Download the **self-extracting installer** `whispertype-linux-x64-install.sh` from [Releases](https://github.com/dayblox/whispertype/releases/latest):
 
 ```sh
 bash whispertype-linux-x64-install.sh

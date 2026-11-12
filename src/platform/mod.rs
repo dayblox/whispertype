@@ -3,7 +3,7 @@ use std::process::{Child, Command};
 pub const INDICATOR_WIDTH: u32 = 64;
 pub const INDICATOR_HEIGHT: u32 = 24;
 pub const INDICATOR_SCALE: u32 = 2;
-pub const RELEASES_URL: &str = "https://github.com/dayblox/whisper/releases/latest";
+pub const RELEASES_URL: &str = "https://github.com/dayblox/whispertype/releases/latest";
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]

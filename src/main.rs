@@ -47,7 +47,7 @@ fn run() -> Result<()> {
                 // There is no tray in this helper to display a notification.
                 unsafe {
                     use windows_sys::Win32::UI::WindowsAndMessaging::*;
-                    let message: Vec<u16> = format!("Could not install the update: {error:#}\nDownload the latest version from github.com/dayblox/whisper/releases/latest.")
+                    let message: Vec<u16> = format!("Could not install the update: {error:#}\nDownload the latest version from github.com/dayblox/whispertype/releases/latest.")
                         .encode_utf16().chain(Some(0)).collect();
                     let title: Vec<u16> =
                         "Whispertype update".encode_utf16().chain(Some(0)).collect();
