@@ -1,6 +1,19 @@
 # Optimization pass — November 11, 2026
 
 The standing RAM/CPU requirements for future work are in `AGENTS.md`.
+v0.1.14 (November 22) removes unused neural-network wakeword dependencies
+(`candle-core`, `candle-nn`, `candle-gemm`, `rayon`, `zip`, `safetensors`,
+`memmap2`, `rand`) and duplicate `rubato 0.14` from vendored `rustpotter`,
+replaces `fs2` (`winapi`) with `std::fs::File` locking, and eliminates
+per-frame heap allocations during active wake-word speech processing using
+reusable audio/MFCC buffers and in-place window rotation. It also stops
+rewriting `config.toml` on every startup/wake toggle, replaces the engine's
+idle dummy timeout and 200 ms active polling with exact deadlines, caches
+Windows tray `HICON`s, and renders the Windows overlay directly into its DIB.
+Windows x64 release EXE shrinks from 2,886,656 to 2,417,664 bytes (−16.2%),
+active non-matching wake speech allocates zero times per pass, and paired
+Windows profiles reduce working set by 144–248 KiB across all states with
+zero idle CPU cycles.
 Microphone fallback classifies startup digital silence from callback frames,
 then bypasses the peak scan after a live stream wins. The primary starts probing
 after 300 ms; candidates get two seconds from their first native callback.

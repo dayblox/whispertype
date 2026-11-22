@@ -7,6 +7,19 @@ not supplied during development.
 
 ## Completed checks
 
+- v0.1.14 resource & binary efficiency pass (November 22): **60 functional tests**,
+  Clippy (`-D warnings`), workspace formatting (`cargo fmt --all --check`),
+  release/system-DLL verification (`2,417,664` bytes, down from `2,886,656`),
+  two vendored MFCC/DTW bit-equivalence tests, and all release zero-allocation
+  checks pass, including the new `active_wake_speech_allocates_nothing` check
+  (0 allocations / 0 peak incremental live bytes across 184 frames of speech).
+  Paired Windows process profiles (3 trials × 5 s, 1 s warmup) measure 0 idle
+  CPU cycles, −1 handle in all states, −144 to −248 KiB working set across all
+  states, and −28 to −76 KiB private memory in initial idle, recording, and
+  wake listening (`idle_after_capture` private memory +24 KiB within allocator
+  page-retention variance across 192/288 KiB capacity steps). Native Linux
+  execution and live Groq transcription were not run locally.
+
 - v0.1.13 candidate warm-up fix (November 13): **60 functional tests**, Clippy, formatting,
   release/system-DLL verification, update-helper integration, packaging/release
   checks, Inno Setup compilation, two MFCC/DTW equivalence checks and the native

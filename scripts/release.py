@@ -57,24 +57,12 @@ def publish(files, tag, commit, prerelease=False):
         raise ValueError(f'Stable tag must match Cargo.toml: v{version}')
     notes = f'''Built from `{commit}` after Windows and Linux tests passed.
 
-**Microphone warm-up fix:** a silent primary still triggers fallback after 300 ms,
-but each candidate now gets two seconds from its first native callback for DSP
-warm-up. A replacement must open successfully before the old candidate closes;
-if none opens, the last candidate keeps buffering until capture ends. The first
-live stream wins with its buffered prefix, including a recovered primary. If no
-stream wins, finish uses the higher-energy retained buffer. Silent candidates
-are never remembered as dead; only dead primary identities are cached in memory.
+**Resource & binary efficiency pass:**
+- Removed unused neural-network wakeword dependencies (`candle-core`, `candle-nn`, `candle-gemm`, `rayon`, `zip`, `safetensors`, `memmap2`, `rand`) and duplicate `rubato 0.14` from vendored `rustpotter`, and replaced `fs2` (`winapi`) with `std::fs::File` locking. Windows x64 release EXE shrinks from 2,886,656 to 2,417,664 bytes (−16.2%).
+- Eliminated per-frame heap allocations during active wake-phrase speech processing via reusable audio/MFCC buffers, in-place MFCC window rotation, and direct `&[i16]` input (`0` allocations per pass on the 5.52 s non-matching speech fixture; MFCC and DTW remain bit-identical to upstream).
+- Stopped rewriting `config.toml` on every launch and wake toggle, replaced the engine's idle dummy timeout and 200 ms active polling with exact deadlines, guarded concurrent shortcut capture, kept warmed upload workers reaped on error paths, hardened `private_write` temp files, cached Windows tray `HICON`s, and rendered the Windows overlay directly into its DIB section.
 
-The fix is generic, with no device-specific rules, new settings, notifications,
-idle polling or application threads. Two bounded PCM buffers remain; opening a
-replacement briefly overlaps three streams. Loopback/monitor sources are excluded.
-The dead-primary cache resets when the default input changes.
-
-The 1.1-second silent-candidate regression, 60 Windows functional tests, release
-allocation checks and the native Windows microphone smoke test pass. Windows
-resource profiles and their limits are recorded in `benchmarks/windows-mic-warmup.md`.
-The reported Intel DSP hardware and native Linux device fallback still need
-testing on the destination machine; the delayed-signal case is covered synthetically.
+60 Windows functional tests, MFCC/DTW bit-equivalence tests, release zero-allocation checks, and paired Windows process profiles pass (idle/recording/wake working set −144 to −248 KiB, private memory −28 to −76 KiB in active/idle states, −1 handle across all states, 0 idle CPU cycles). Native Linux execution and live Groq transcription remain unverified locally.
 
 | Platform | Installer | Standalone / portable |
 | --- | --- | --- |
