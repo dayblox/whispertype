@@ -44,9 +44,8 @@ fn reference_mode(config: &Config, paths: &Paths, score_only: bool) -> Result<(R
     // in an older personal reference file. The user's model is never rewritten.
     model.threshold = None;
     model.avg_threshold = None;
-    let data = model.save_to_buffer().map_err(anyhow::Error::msg)?;
     detector
-        .add_wakeword_from_buffer("wake", &data)
+        .add_wakeword_ref("wake", model)
         .map_err(anyhow::Error::msg)?;
     Ok((detector, target))
 }
@@ -104,7 +103,7 @@ impl Probe {
         if let Some(partial) = self.detector.inner.get_partial_detection() {
             self.report.partial_frames = self.report.partial_frames.max(partial.counter);
         }
-        self.scorer.process_bytes(bytemuck::cast_slice(frame));
+        self.scorer.process_slice(frame);
         if let Some(partial) = self.scorer.get_partial_detection() {
             self.report.best_score = self.report.best_score.max(partial.score);
         }
@@ -248,15 +247,12 @@ impl Detector {
             for i in 0..self.buffered {
                 let at =
                     (self.next + self.pre_roll.len() - self.buffered + i) % self.pre_roll.len();
-                self.inner
-                    .process_bytes(bytemuck::cast_slice(&self.pre_roll[at]));
+                self.inner.process_slice(&self.pre_roll[at]);
             }
             self.buffered = 0;
             self.active = true;
         }
-        self.inner
-            .process_bytes(bytemuck::cast_slice(frame))
-            .is_some()
+        self.inner.process_slice(frame).is_some()
     }
 }
 

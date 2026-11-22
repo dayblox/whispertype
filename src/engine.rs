@@ -6,7 +6,6 @@ use crate::{
     platform, wake,
 };
 use anyhow::{ensure, Context, Result};
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::OpenOptions,
@@ -36,7 +35,7 @@ pub enum Event {
     #[cfg(windows)]
     Cancel,
     Result(u64, Transcript),
-    Shortcut(String),
+    Shortcut(Option<String>),
     Startup(Result<bool, String>),
     Prompt(Result<Option<String>, String>),
     #[cfg(windows)]
@@ -118,6 +117,7 @@ struct Engine {
     profiling: bool,
     audio_events: u64,
     prompt_editing: bool,
+    shortcut_capturing: bool,
     #[cfg(windows)]
     pending_update: Option<crate::updates::Prepared>,
 }
@@ -130,13 +130,15 @@ pub fn run(paths: Paths) -> Result<()> {
         .write(true)
         .open(&paths.lock)?;
     ensure!(
-        instance.try_lock_exclusive().is_ok(),
+        instance.try_lock().is_ok(),
         "Whispertype is already running"
     );
     let mut config = Config::load(&paths)?;
     // Wake listening is opt-in for each session, including upgrades from old profiles.
-    config.wake_enabled = false;
-    config.save(&paths)?;
+    if config.wake_enabled || !paths.config.exists() {
+        config.wake_enabled = false;
+        config.save(&paths)?;
+    }
     let (sender, receiver) = mpsc::sync_channel(64);
     let startup = platform::startup_enabled().unwrap_or(false);
     let desktop = platform::Desktop::start(&paths, &config, sender.clone(), startup)?;
@@ -162,18 +164,19 @@ pub fn run(paths: Paths) -> Result<()> {
         profiling: std::env::var_os("WHISPERTYPE_PROFILE").is_some(),
         audio_events: 0,
         prompt_editing: false,
+        shortcut_capturing: false,
         #[cfg(windows)]
         pending_update: None,
     };
     app.refresh();
     loop {
-        let event = receiver.recv_timeout(
-            if app.recording.is_some() || app.enrollment.as_ref().is_some_and(Enrollment::active) {
-                Duration::from_millis(200)
-            } else {
-                Duration::from_secs(86400 * 365)
-            },
-        );
+        let deadline = app.next_deadline();
+        let event = match deadline {
+            Some(wait) => receiver.recv_timeout(wait),
+            None => receiver
+                .recv()
+                .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+        };
         let result = match event {
             Ok(Event::Command(command)) if command == "quit" => break,
             Ok(Event::Command(command)) => app.command(&command),
@@ -194,7 +197,14 @@ pub fn run(paths: Paths) -> Result<()> {
                 Ok(())
             }
             Ok(Event::Result(id, result)) => app.completed(id, result),
-            Ok(Event::Shortcut(shortcut)) => app.change_shortcut(&shortcut),
+            Ok(Event::Shortcut(shortcut)) => {
+                app.shortcut_capturing = false;
+                if let Some(shortcut) = shortcut {
+                    app.change_shortcut(&shortcut)
+                } else {
+                    Ok(())
+                }
+            }
             Ok(Event::Prompt(result)) => {
                 app.prompt_editing = false;
                 match result {
@@ -283,6 +293,18 @@ pub fn run(paths: Paths) -> Result<()> {
 }
 
 impl Engine {
+    fn next_deadline(&self) -> Option<Duration> {
+        let now = Instant::now();
+        let recording = self.recording.as_ref().map(|r| {
+            Duration::from_secs(self.config.max_seconds as u64)
+                .saturating_sub(now.saturating_duration_since(r.started))
+        });
+        let enrollment = self.enrollment.as_ref().and_then(|e| e.next_deadline(now));
+        match (recording, enrollment) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
     fn refresh(&mut self) {
         let state = if self.enrollment.as_ref().is_some_and(Enrollment::active) {
             "enrolling"
@@ -371,8 +393,10 @@ impl Engine {
             self.detector = None;
         }
         self.wake = enabled;
-        self.config.wake_enabled = false;
-        self.config.save(&self.paths)?;
+        if self.config.wake_enabled {
+            self.config.wake_enabled = false;
+            self.config.save(&self.paths)?;
+        }
         if self.job.is_none() && self.recording.is_none() && self.enrollment.is_none() {
             self.resume()?;
         }
@@ -437,22 +461,43 @@ impl Engine {
             ..
         } = recording;
         #[cfg(windows)]
-        let warmed = worker.map(crate::groq::Worker::take);
-        #[cfg(not(windows))]
-        let warmed = None;
-        let mut child = if let Some(child) = warmed {
-            child
+        let (child, mut input, output) = if let Some(mut worker) = worker {
+            let input = worker
+                .child_mut()
+                .stdin
+                .take()
+                .context("Missing worker input")?;
+            let output = worker
+                .child_mut()
+                .stdout
+                .take()
+                .context("Missing worker output")?;
+            (worker.take(), input, output)
         } else {
-            platform::spawn_hidden(
+            let mut child = platform::spawn_hidden(
                 Command::new(std::env::current_exe()?)
                     .arg("_worker")
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::inherit()),
-            )?
+            )?;
+            let input = child.stdin.take().context("Missing worker input")?;
+            let output = child.stdout.take().context("Missing worker output")?;
+            (child, input, output)
         };
-        let mut input = child.stdin.take().context("Missing worker input")?;
-        let output = child.stdout.take().context("Missing worker output")?;
+        #[cfg(not(windows))]
+        let (child, mut input, output) = {
+            let mut child = platform::spawn_hidden(
+                Command::new(std::env::current_exe()?)
+                    .arg("_worker")
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::inherit()),
+            )?;
+            let input = child.stdin.take().context("Missing worker input")?;
+            let output = child.stdout.take().context("Missing worker output")?;
+            (child, input, output)
+        };
         self.generation += 1;
         let id = self.generation;
         let sender = self.sender.clone();
@@ -667,25 +712,27 @@ impl Engine {
                 return Ok(());
             }
             "shortcut-capture" => {
+                if self.shortcut_capturing {
+                    return Ok(());
+                }
+                let exe = std::env::current_exe()?;
+                self.shortcut_capturing = true;
                 platform::notify(
                     "Press a new shortcut (Space, letter, digit, or F key). Escape cancels.",
                 );
                 let sender = self.sender.clone();
                 std::thread::spawn(move || {
-                    let result = platform::spawn_hidden(
-                        Command::new(std::env::current_exe().unwrap())
+                    let captured = platform::spawn_hidden(
+                        Command::new(exe)
                             .arg("_capture-shortcut")
                             .stdout(Stdio::piped()),
                     )
-                    .and_then(|c| c.wait_with_output());
-                    if let Ok(output) = result {
-                        if output.status.success() {
-                            let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                            if !s.is_empty() {
-                                let _ = sender.send(Event::Shortcut(s));
-                            }
-                        }
-                    }
+                    .and_then(|c| c.wait_with_output())
+                    .ok()
+                    .filter(|output| output.status.success())
+                    .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+                    .filter(|s| !s.is_empty());
+                    let _ = sender.send(Event::Shortcut(captured));
                 });
                 return Ok(());
             }
@@ -755,7 +802,8 @@ impl Engine {
                     recording.silence += samples.len();
                 }
             }
-            let room = self.config.max_seconds as usize * RATE - recording.samples.len();
+            let room =
+                (self.config.max_seconds as usize * RATE).saturating_sub(recording.samples.len());
             audio::append_recording(
                 &mut recording.samples,
                 &samples,

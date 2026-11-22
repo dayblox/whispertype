@@ -120,16 +120,23 @@ impl MfccExtractor {
         self.dct_weights = Self::new_dct_weights(self.num_coefficients);
         self.reset();
     }
+    pub fn samples_per_shift(&self) -> usize {
+        self.samples_per_shift
+    }
     pub fn compute(&mut self, audio_samples: &[f32]) -> Vec<Vec<f32>> {
-        audio_samples
-            .chunks_exact(self.samples_per_shift)
-            .filter_map(|audio_part| self.process_audio_part(audio_part))
-            .collect()
+        let mut out = Vec::new();
+        let mut scratch = Vec::with_capacity(self.num_coefficients.saturating_sub(1));
+        for audio_part in audio_samples.chunks_exact(self.samples_per_shift) {
+            if self.process_part_into(audio_part, &mut scratch) {
+                out.push(scratch.clone());
+            }
+        }
+        out
     }
     pub fn reset(&mut self) {
         self.samples.clear();
     }
-    fn process_audio_part(&mut self, audio_buffer: &[f32]) -> Option<Vec<f32>> {
+    pub fn process_part_into(&mut self, audio_buffer: &[f32], out: &mut Vec<f32>) -> bool {
         let ready = self.samples.len() >= self.samples_per_frame;
         if ready {
             self.samples.drain(0..audio_buffer.len());
@@ -140,12 +147,17 @@ impl MfccExtractor {
             tmp_sample = *current;
             tmp_sample - self.pre_emphasis_coefficient * previous
         }));
-        ready.then(|| self.extract_mfccs())
+        if ready {
+            self.extract_mfccs_into(out);
+            true
+        } else {
+            false
+        }
     }
 
     //==================================================================
     // Feature extraction utils
-    fn extract_mfccs(&mut self) -> Vec<f32> {
+    fn extract_mfccs_into(&mut self, out: &mut Vec<f32>) {
         for (i, value) in self.fft_buffer.iter_mut().enumerate() {
             *value = Complex32 {
                 re: self.samples[i] * self.hamming_window[i],
@@ -167,18 +179,15 @@ impl MfccExtractor {
             *value = (energy + f32::MIN_POSITIVE).ln();
         }
         // Keep coefficient accumulation order and drop the same first output.
-        self.dct_weights
-            .iter()
-            .skip(1)
-            .map(|weights| {
-                2. * self
-                    .mel_cepstrum
-                    .iter()
-                    .zip(weights)
-                    .map(|(sample, weight)| sample * weight)
-                    .sum::<f32>()
-            })
-            .collect()
+        out.clear();
+        out.extend(self.dct_weights.iter().skip(1).map(|weights| {
+            2. * self
+                .mel_cepstrum
+                .iter()
+                .zip(weights)
+                .map(|(sample, weight)| sample * weight)
+                .sum::<f32>()
+        }));
     }
     fn new_hamming_window(samples_per_frame: usize) -> Vec<f32> {
         let ns_minus_1 = samples_per_frame - 1;

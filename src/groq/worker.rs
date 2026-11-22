@@ -14,6 +14,9 @@ impl Worker {
         )?;
         Ok(Self(Some(child)))
     }
+    pub fn child_mut(&mut self) -> &mut Child {
+        self.0.as_mut().unwrap()
+    }
     pub fn take(mut self) -> Child {
         self.0.take().unwrap()
     }

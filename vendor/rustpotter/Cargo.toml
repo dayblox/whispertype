@@ -25,21 +25,11 @@ readme = "README.md"
 license = "Apache-2.0"
 repository = "https://github.com/GiviMAD/rustpotter"
 
-[dependencies.candle-core]
-version = "0.2.2"
-
-[dependencies.candle-nn]
-version = "0.2.2"
-
 [dependencies.ciborium]
 version = "0.2.1"
 
 [dependencies.hound]
 version = "3.4.5"
-
-[dependencies.rubato]
-version = "0.14.1"
-default-features = false
 
 [dependencies.rustfft]
 version = "6.1.0"

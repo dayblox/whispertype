@@ -60,9 +60,11 @@ static HOTKEY: AtomicU32 = AtomicU32::new(VK_SPACE as u32);
 static MODIFIERS: AtomicU32 = AtomicU32::new(1);
 static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
 thread_local! {
-    static ICON:Cell<HICON>=const{Cell::new(null_mut())};
-    static OVERLAY:Cell<HWND>=const{Cell::new(null_mut())};
-    static OVERLAY_STATE:RefCell<String>=const{RefCell::new(String::new())};
+    static ICON_IDLE: Cell<HICON> = const { Cell::new(null_mut()) };
+    static ICON_ACTIVE: Cell<HICON> = const { Cell::new(null_mut()) };
+    static LAST_TRAY: RefCell<Option<(bool, String)>> = const { RefCell::new(None) };
+    static OVERLAY: Cell<HWND> = const { Cell::new(null_mut()) };
+    static OVERLAY_STATE: RefCell<String> = const { RefCell::new(String::new()) };
     static PENDING_NOTIFICATION: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 fn wide(s: &str) -> Vec<u16> {
@@ -293,33 +295,63 @@ unsafe fn copy_wide<const N: usize>(target: &mut [u16; N], s: &str) {
         *to = from;
     }
 }
+unsafe fn cached_icon(active: bool) -> HICON {
+    let slot = if active { &ICON_ACTIVE } else { &ICON_IDLE };
+    slot.with(|cell| {
+        let existing = cell.get();
+        if !existing.is_null() {
+            return existing;
+        }
+        let created = make_icon(active);
+        cell.set(created);
+        created
+    })
+}
+unsafe fn clear_tray_icons() {
+    for slot in [&ICON_IDLE, &ICON_ACTIVE] {
+        slot.with(|cell| {
+            let icon = cell.replace(null_mut());
+            if !icon.is_null() {
+                DestroyIcon(icon);
+            }
+        });
+    }
+    LAST_TRAY.with(|last| *last.borrow_mut() = None);
+}
 unsafe fn tray(action: NOTIFY_ICON_MESSAGE) {
     let snapshot = SNAPSHOT.get().unwrap().lock().unwrap().clone();
     if !snapshot.config.tray {
+        if action == NIM_DELETE {
+            clear_tray_icons();
+        }
+        return;
+    }
+    let active = snapshot.state == "recording";
+    let tip = format!(
+        "Whispertype · {} · {}",
+        snapshot.state, snapshot.config.shortcut
+    );
+    if action == NIM_MODIFY
+        && LAST_TRAY.with(|last| last.borrow().as_ref() == Some(&(active, tip.clone())))
+    {
         return;
     }
     let mut data: NOTIFYICONDATAW = zeroed();
     data.cbSize = size_of::<NOTIFYICONDATAW>() as u32;
     data.hWnd = hwnd();
     data.uID = 1;
-    data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
-    data.uCallbackMessage = CALLBACK;
-    let icon = make_icon(snapshot.state == "recording");
-    data.hIcon = icon;
-    copy_wide(
-        &mut data.szTip,
-        &format!(
-            "Whispertype · {} · {}",
-            snapshot.state, snapshot.config.shortcut
-        ),
-    );
+    if action != NIM_DELETE {
+        data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+        data.uCallbackMessage = CALLBACK;
+        data.hIcon = cached_icon(active);
+        copy_wide(&mut data.szTip, &tip);
+    }
     Shell_NotifyIconW(action, &data);
-    ICON.with(|old| {
-        let previous = old.replace(icon);
-        if !previous.is_null() {
-            DestroyIcon(previous);
-        }
-    });
+    if action == NIM_DELETE {
+        clear_tray_icons();
+    } else {
+        LAST_TRAY.with(|last| *last.borrow_mut() = Some((active, tip)));
+    }
 }
 unsafe fn make_icon(active: bool) -> HICON {
     let mut bgra = [0u8; 32 * 32 * 4];
@@ -767,8 +799,8 @@ unsafe fn create_overlay(kind: &str) -> Result<HWND> {
         DestroyWindow(window);
         anyhow::bail!("Could not create indicator bitmap");
     }
-    let pixels = super::pixels(kind, width as usize, height as usize);
-    std::ptr::copy_nonoverlapping(pixels.as_ptr(), bits as *mut u8, pixels.len());
+    let pixels = std::slice::from_raw_parts_mut(bits as *mut u8, (width * height * 4) as usize);
+    super::write_pixels(kind, width as usize, height as usize, pixels);
     let previous = SelectObject(memory, dib);
     let blend = BLENDFUNCTION {
         BlendOp: AC_SRC_OVER as u8,

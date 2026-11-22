@@ -48,6 +48,36 @@ impl Enrollment {
     pub fn active(&self) -> bool {
         matches!(self.phase, Phase::Countdown(_) | Phase::Listening(_))
     }
+    pub fn next_deadline(&self, now: Instant) -> Option<Duration> {
+        match self.phase {
+            Phase::Countdown(until) => {
+                let rem = until.saturating_duration_since(now);
+                // Wake on each whole-second boundary to update the countdown display.
+                let millis = rem.as_millis();
+                if millis == 0 {
+                    Some(Duration::ZERO)
+                } else {
+                    let step = millis % 1000;
+                    Some(Duration::from_millis(if step == 0 {
+                        1000
+                    } else {
+                        step as u64
+                    }))
+                }
+            }
+            Phase::Listening(started) => {
+                let limit = if self.testing {
+                    Duration::from_secs(8)
+                } else if self.voiced_samples == 0 {
+                    Duration::from_secs(10)
+                } else {
+                    return None;
+                };
+                Some(limit.saturating_sub(now.saturating_duration_since(started)))
+            }
+            Phase::Ready | Phase::Done(_) => None,
+        }
+    }
     pub fn done(&self) -> bool {
         matches!(self.phase, Phase::Done(_))
     }

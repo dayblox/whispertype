@@ -479,3 +479,53 @@ fn efficiency_benchmark() {
     }
     println!("EFFICIENCY_JSON={}", serde_json::Value::Object(report));
 }
+
+#[test]
+#[ignore = "Offline active-speech wake allocation check; run alone in release mode"]
+fn active_wake_speech_allocates_nothing() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::at(temp.path().into()).unwrap();
+    std::fs::write(&paths.model, include_bytes!("../assets/hey-groq.rpw")).unwrap();
+    let config = Config {
+        wake_threshold: 0.65,
+        ..Config::default()
+    };
+    let mut negative: Vec<i16> = include_bytes!("../assets/test-negative.pcm")
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|v| i16::from_le_bytes(*v))
+        .collect();
+    negative.extend(vec![0; RATE * 3]);
+    let frames = negative.as_chunks::<FRAME>().0;
+    let mut detector = crate::wake::detector(&config, &paths).unwrap();
+    // Warm up internal scratch buffers.
+    for frame in frames {
+        assert!(!detector.process(frame));
+    }
+    let ms = timed(|| {
+        for _ in 0..40 {
+            for frame in frames {
+                assert!(!detector.process(black_box(frame)));
+            }
+        }
+    });
+    let (allocs, peak) = allocations(|| {
+        for frame in frames {
+            assert!(!detector.process(black_box(frame)));
+        }
+    });
+    println!(
+        "ACTIVE_WAKE_JSON={}",
+        serde_json::json!({
+            "frames_per_pass": frames.len(),
+            "microseconds_per_frame": ms * 1000.0 / (40 * frames.len()) as f64,
+            "allocations_per_pass": allocs,
+            "peak_incremental_live_bytes": peak,
+        })
+    );
+    assert_eq!(
+        allocs, 0,
+        "Active non-matching wake speech allocated {allocs} times"
+    );
+}

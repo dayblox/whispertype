@@ -146,7 +146,17 @@ impl Config {
 
 pub fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
-    let temp = path.with_extension("new");
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let mut name = path
+        .file_name()
+        .context("Missing file name")?
+        .to_os_string();
+    name.push(format!(
+        ".{}.{}.new",
+        std::process::id(),
+        COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let temp = path.with_file_name(name);
     let mut options = fs::OpenOptions::new();
     options.create(true).write(true).truncate(true);
     #[cfg(unix)]
@@ -154,30 +164,36 @@ pub fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut file = options.open(&temp)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
-    // MoveFileEx provides atomic replacement on Windows, including existing destinations.
-    #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        let source: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
-        let target: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-        unsafe {
-            if windows_sys::Win32::Storage::FileSystem::MoveFileExW(
-                source.as_ptr(),
-                target.as_ptr(),
-                0x1 | 0x8,
-            ) == 0
-            {
-                return Err(std::io::Error::last_os_error().into());
+    let write_and_replace = (|| -> Result<()> {
+        let mut file = options.open(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        // MoveFileEx provides atomic replacement on Windows, including existing destinations.
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStrExt;
+            let source: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
+            let target: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+            unsafe {
+                if windows_sys::Win32::Storage::FileSystem::MoveFileExW(
+                    source.as_ptr(),
+                    target.as_ptr(),
+                    0x1 | 0x8,
+                ) == 0
+                {
+                    return Err(std::io::Error::last_os_error().into());
+                }
             }
         }
+        #[cfg(not(windows))]
+        fs::rename(&temp, path)?;
+        Ok(())
+    })();
+    if write_and_replace.is_err() {
+        let _ = fs::remove_file(&temp);
     }
-    #[cfg(not(windows))]
-    fs::rename(temp, path)?;
-    Ok(())
+    write_and_replace
 }
 pub fn validate_key(key: &str) -> Result<()> {
     ensure!(

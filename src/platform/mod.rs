@@ -23,8 +23,14 @@ pub fn spawn_hidden(command: &mut Command) -> std::io::Result<Child> {
 }
 
 /// Small signed-distance shapes, premultiplied BGRA for both Wayland and Win32.
+#[cfg_attr(windows, allow(dead_code))]
 pub fn pixels(kind: &str, width: usize, height: usize) -> Vec<u8> {
     let mut image = vec![0; width * height * 4];
+    write_pixels(kind, width, height, &mut image);
+    image
+}
+
+pub fn write_pixels(kind: &str, width: usize, height: usize, image: &mut [u8]) {
     let color = match kind {
         "transcribing" => [122.0, 162.0, 247.0],
         "enrolling" | "shortcut" => [224.0, 175.0, 104.0],
@@ -61,7 +67,6 @@ pub fn pixels(kind: &str, width: usize, height: usize) -> Vec<u8> {
             image[at + 3] = (255.0 * a) as u8;
         }
     }
-    image
 }
 
 #[cfg(test)]

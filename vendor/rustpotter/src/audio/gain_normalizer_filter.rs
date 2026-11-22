@@ -13,10 +13,12 @@ pub struct GainNormalizerFilter {
 impl GainNormalizerFilter {
     pub fn filter(&mut self, signal: &mut [f32], rms_level: f32) -> f32 {
         if !self.rms_level_ref.is_nan() && rms_level != 0. {
-            // update the window
-            self.rms_level_window.push(rms_level);
-            if self.rms_level_window.len() > self.window_size {
-                self.rms_level_window.drain(0..1);
+            // update the window without reallocating once full
+            if self.rms_level_window.len() < self.window_size {
+                self.rms_level_window.push(rms_level);
+            } else if !self.rms_level_window.is_empty() {
+                self.rms_level_window.rotate_left(1);
+                *self.rms_level_window.last_mut().unwrap() = rms_level;
             }
             // calculate the mean of the rms window
             let frame_rms_level =
@@ -45,6 +47,14 @@ impl GainNormalizerFilter {
             self.rms_level_sqrt = rms_level.sqrt();
         }
         self.window_size = if window_size != 0 { window_size } else { 1 };
+        if self.rms_level_window.capacity() < self.window_size {
+            self.rms_level_window
+                .reserve(self.window_size - self.rms_level_window.len());
+        }
+        if self.rms_level_window.len() > self.window_size {
+            let excess = self.rms_level_window.len() - self.window_size;
+            self.rms_level_window.drain(0..excess);
+        }
     }
     pub fn get_rms_level(signal: &[f32]) -> f32 {
         let mut sum_squared = 0.0;

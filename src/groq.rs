@@ -5,7 +5,6 @@ use crate::{
 #[cfg(target_os = "linux")]
 use anyhow::bail;
 use anyhow::{ensure, Context, Result};
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::OpenOptions,
@@ -53,7 +52,7 @@ fn reserve(paths: &Paths, seconds: f64) -> Result<()> {
         options.mode(0o600);
     }
     let mut file = options.open(&paths.state)?;
-    file.lock_exclusive()?;
+    file.lock()?;
     let mut data = String::new();
     file.read_to_string(&mut data)?;
     let mut entries: Vec<Usage> = if data.is_empty() {

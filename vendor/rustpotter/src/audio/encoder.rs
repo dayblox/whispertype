@@ -1,13 +1,8 @@
 // Modified by Whispertype; see UPSTREAM.md for changes.
-use rubato::{FftFixedInOut, Resampler};
-
 use crate::{config::AudioFmt, Endianness, Sample, SampleFormat};
 
 /// Encode and convert audio to the supported format.
 pub struct AudioEncoder {
-    resampler: Option<FftFixedInOut<f32>>,
-    resampler_input_buffer: Option<Vec<Vec<f32>>>,
-    resampler_out_buffer: Option<Vec<Vec<f32>>>,
     source_sample_format: SampleFormat,
     source_channels: u16,
     source_endianness: Endianness,
@@ -24,68 +19,56 @@ impl AudioEncoder {
     pub fn get_input_byte_length(&self) -> usize {
         self.get_input_frame_length() * self.source_sample_format.get_bytes_per_sample() as usize
     }
-    pub fn encode_and_resample(&mut self, buffer: &[u8]) -> Vec<f32> {
-        let float_samples = match &self.source_sample_format {
-            SampleFormat::I8 => encode_audio_bytes::<i8>(buffer, &self.source_endianness),
-            SampleFormat::I16 => encode_audio_bytes::<i16>(buffer, &self.source_endianness),
-            SampleFormat::I32 => encode_audio_bytes::<i32>(buffer, &self.source_endianness),
-            SampleFormat::F32 => encode_audio_bytes::<f32>(buffer, &self.source_endianness),
-        };
-        self.reencode_to_mono_with_sample_rate(float_samples)
+    pub fn encode_into(&self, buffer: &[u8], out: &mut Vec<f32>) {
+        out.clear();
+        let stride = self.source_channels.max(1) as usize;
+        match &self.source_sample_format {
+            SampleFormat::I8 => {
+                encode_audio_bytes_into::<i8>(buffer, &self.source_endianness, stride, out)
+            }
+            SampleFormat::I16 => {
+                encode_audio_bytes_into::<i16>(buffer, &self.source_endianness, stride, out)
+            }
+            SampleFormat::I32 => {
+                encode_audio_bytes_into::<i32>(buffer, &self.source_endianness, stride, out)
+            }
+            SampleFormat::F32 => {
+                encode_audio_bytes_into::<f32>(buffer, &self.source_endianness, stride, out)
+            }
+        }
+    }
+    pub fn encode_samples_into<T: Sample>(&self, samples: &[T], out: &mut Vec<f32>) {
+        out.clear();
+        let stride = self.source_channels.max(1) as usize;
+        if stride == 1 {
+            out.extend(samples.iter().copied().map(T::into_f32));
+        } else {
+            out.extend(
+                samples
+                    .chunks_exact(stride)
+                    .map(|chunk| T::into_f32(chunk[0])),
+            );
+        }
     }
     pub fn rencode_and_resample<T: Sample>(&mut self, buffer: Vec<T>) -> Vec<f32> {
-        self.reencode_to_mono_with_sample_rate(
-            buffer.into_iter().map(T::into_f32).collect::<Vec<f32>>(),
-        )
-    }
-    fn reencode_to_mono_with_sample_rate(&mut self, buffer: Vec<f32>) -> Vec<f32> {
-        let mono_buffer = if self.source_channels != 1 {
-            buffer
-                .chunks_exact(self.source_channels as usize)
-                .map(|chunk| chunk[0])
-                .collect::<Vec<f32>>()
-        } else {
-            buffer
-        };
-        if let Some(resampler) = &mut self.resampler {
-            let waves_in = self.resampler_input_buffer.as_mut().unwrap();
-            waves_in[0] = mono_buffer;
-            let waves_out = self.resampler_out_buffer.as_mut().unwrap();
-            resampler
-                .process_into_buffer(waves_in, waves_out, None)
-                .unwrap();
-            waves_out.first().unwrap().to_vec()
-        } else {
-            mono_buffer
-        }
+        let mut out = Vec::with_capacity(self.output_samples_per_frame);
+        self.encode_samples_into(&buffer, &mut out);
+        out
     }
     pub fn new(
         input_spec: &AudioFmt,
         frame_length_ms: usize,
         target_sample_rate: usize,
     ) -> Result<AudioEncoder, &'static str> {
-        let mut input_samples_per_frame =
+        if input_spec.sample_rate != target_sample_rate {
+            return Err("Unsupported sample rate, expected 16000 Hz");
+        }
+        let input_samples_per_frame =
             (input_spec.sample_rate * frame_length_ms / 1000) * input_spec.channels as usize;
         let output_samples_per_frame = target_sample_rate * frame_length_ms / 1000;
-        let resampler = if input_spec.sample_rate != target_sample_rate {
-            let resampler = FftFixedInOut::<f32>::new(
-                input_spec.sample_rate,
-                target_sample_rate,
-                output_samples_per_frame,
-                1,
-            )
-            .map_err(|_| "Unsupported sample rate, unable to initialize the resampler")?;
-            input_samples_per_frame = resampler.input_frames_next() * input_spec.channels as usize;
-            Some(resampler)
-        } else {
-            None
-        };
         Ok(AudioEncoder {
             input_samples_per_frame,
             output_samples_per_frame,
-            resampler_out_buffer: resampler.as_ref().map(|r| r.output_buffer_allocate(true)),
-            resampler_input_buffer: resampler.as_ref().map(|r| r.input_buffer_allocate(false)),
-            resampler,
             source_sample_format: input_spec.sample_format.clone(),
             source_channels: input_spec.channels,
             source_endianness: input_spec.endianness.clone(),
@@ -93,16 +76,24 @@ impl AudioEncoder {
     }
 }
 
-fn encode_audio_bytes<T: Sample>(audio_buffer: &[u8], endianness: &Endianness) -> Vec<f32> {
-    let buffer_chunks = audio_buffer.chunks_exact(T::get_byte_size());
+fn encode_audio_bytes_into<T: Sample>(
+    audio_buffer: &[u8],
+    endianness: &Endianness,
+    stride: usize,
+    out: &mut Vec<f32>,
+) {
+    let step = T::get_byte_size() * stride;
+    let byte_size = T::get_byte_size();
+    let chunks = audio_buffer.chunks_exact(step);
     match endianness {
-        Endianness::Little => buffer_chunks.map(T::from_le_bytes).collect::<Vec<T>>(),
-        Endianness::Big => buffer_chunks.map(T::from_be_bytes).collect::<Vec<T>>(),
-        Endianness::Native => buffer_chunks.map(T::from_ne_bytes).collect::<Vec<T>>(),
+        Endianness::Little => {
+            out.extend(chunks.map(|c| T::from_le_bytes(&c[..byte_size]).into_f32()))
+        }
+        Endianness::Big => out.extend(chunks.map(|c| T::from_be_bytes(&c[..byte_size]).into_f32())),
+        Endianness::Native => {
+            out.extend(chunks.map(|c| T::from_ne_bytes(&c[..byte_size]).into_f32()))
+        }
     }
-    .into_iter()
-    .map(T::into_f32)
-    .collect()
 }
 
 #[test]

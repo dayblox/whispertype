@@ -15,6 +15,12 @@ Whispertype modifications:
 - Avoid building a sample-score map unless a candidate passes the threshold.
 - Cache FFT plans, scratch storage, spectra and DCT weights; reuse audio,
   pre-emphasis and mel-cepstrum workspaces without changing arithmetic order.
+- Remove unused neural-network (`candle-core`/`candle-nn`) wakeword training
+  and inference modules and duplicate `rubato` resampling (Whispertype only
+  uses 16 kHz mono MFCC+DTW reference models).
+- Eliminate per-frame allocations in `AudioEncoder`, `GainNormalizerFilter`,
+  `MfccExtractor`, `audio_mfcc_window` (in-place rotation), and
+  `run_wakeword_detectors`.
 - Apply formatting and equivalent current-Clippy cleanups to the vendored
   source. `mfcc/extractor_reference.rs` retains the upstream extraction
   algorithm as a test-only oracle.
